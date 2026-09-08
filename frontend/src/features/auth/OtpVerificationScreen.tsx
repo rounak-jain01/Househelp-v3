@@ -96,70 +96,81 @@ export default function OtpVerificationScreen() {
   };
 
   const handleVerify = async () => {
-    if (otp.length !== 6) {
+  if (otp.length !== 6) {
+    showMessage(
+      'Enter the complete OTP',
+      'Please enter the 6-digit verification code sent to your phone.',
+    );
+    return;
+  }
+
+  Keyboard.dismiss();
+
+  try {
+    setIsVerifying(true);
+
+    const user = await verifyOtp(otp);
+
+    console.log(
+      '[OTP] Firebase user:',
+      user.uid,
+    );
+
+    router.replace({
+      pathname: '/auth/permissions',
+      params: {
+        role: role ?? 'user',
+      },
+    });
+  } catch (error: any) {
+    console.error(
+      '[OTP] Verification failed:',
+      error,
+    );
+
+    const errorCode = error?.code;
+
+    if (
+      errorCode ===
+      'auth/invalid-verification-code'
+    ) {
       showMessage(
-        'Enter the complete OTP',
-        'Please enter the 6-digit verification code sent to your phone.',
+        'Incorrect OTP',
+        'The code you entered is incorrect. Please check the SMS and try again.',
       );
       return;
     }
 
-    Keyboard.dismiss();
-
-    try {
-      setIsVerifying(true);
-
-      const user = await verifyOtp(otp);
-
-      console.log('Firebase user:', user.uid);
-
-      router.replace('/auth/permissions');
-    } catch (error: any) {
-      console.error(
-        'OTP verification failed:',
-        error,
-      );
-
-      const errorCode = error?.code;
-
-      if (
-        errorCode === 'auth/invalid-verification-code'
-      ) {
-        showMessage(
-          'Incorrect OTP',
-          'The code you entered is incorrect. Please check the SMS and try again.',
-        );
-        return;
-      }
-
-      if (
-        errorCode === 'auth/code-expired'
-      ) {
-        showMessage(
-          'OTP expired',
-          'This verification code has expired. Please request a new OTP.',
-        );
-        return;
-      }
-
-      if (
-        errorCode === 'auth/session-expired'
-      ) {
-        showMessage(
-          'Verification expired',
-          'Your OTP session has expired. Please request a new code.',
-        );
-        return;
-      }
-
+    if (
+      errorCode ===
+      'auth/code-expired'
+    ) {
       showMessage(
-        'Verification failed',
-        'We could not verify your OTP. Please try again.',
+        'OTP expired',
+        'This verification code has expired. Please request a new OTP.',
       );
-    } finally {
-      setIsVerifying(false);
+      return;
     }
-  };
+
+    if (
+      errorCode ===
+      'auth/session-expired'
+    ) {
+      showMessage(
+        'Verification expired',
+        'Your OTP session has expired. Please request a new code.',
+      );
+      return;
+    }
+
+    showMessage(
+      'Verification failed',
+      'We could not verify your OTP. Please try again.',
+    );
+  } finally {
+    setIsVerifying(false);
+  }
+};
 
   const handleResend = async () => {
     if (

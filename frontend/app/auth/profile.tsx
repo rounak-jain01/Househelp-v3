@@ -1,5 +1,5 @@
-import CustomerProfileScreen from '../../src/features/customer/CustomerProfileScreen';
+import CustomerProfileSetupScreen from '../../src/features/customer/CustomerProfileSetupScreen';
 
 export default function ProfileRoute() {
-  return <CustomerProfileScreen />;
+  return <CustomerProfileSetupScreen />;
 }
