@@ -116,7 +116,7 @@ export default function Index() {
   }
 
   // Authenticated but profile/role not created yet.
-  return <Redirect href="/auth/role" />;
+  return <Redirect href="/auth/permissions" />;
 }
 
 const styles = StyleSheet.create({

@@ -1,558 +1,3093 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   ActivityIndicator,
+  Image,
+  Linking,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
+
+import { router } from "expo-router";
 
 import {
   subscribeToBooking,
-  type BookingDocument,
-} from '../../services/firebase/bookingService';
+} from "../../services/firebase/bookingService";
 
-export default function BookingWaitingScreen() {
-  const insets = useSafeAreaInsets();
+import {
+  cancelCustomerBooking,
+  requestExtraTime,
+  subscribeToCustomerStartOtp,
+  type CustomerStartOtp,
+} from "../../services/firebase/customerBookingLifecycleService";
 
-  const { bookingId } = useLocalSearchParams<{
-    bookingId: string;
-  }>();
+type BookingStatus =
+  | "pending"
+  | "assigned"
+  | "confirmed"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "no_maid_found";
 
-  const [booking, setBooking] =
-    useState<BookingDocument | null>(null);
+type Booking = {
+  customerId?: string;
 
-  const [error, setError] = useState('');
+  maidId?: string | null;
 
-  useEffect(() => {
-    if (!bookingId) {
-      setError('Booking could not be found.');
-      return;
+  winningMaidId?: string | null;
+
+  categories?: string[];
+
+  duration?: number;
+
+  scheduledDateTime?: any;
+
+  totalPrice?: number;
+
+  status?: BookingStatus;
+
+  customerAddress?: {
+    formatted?: string;
+    landmark?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+  };
+
+  maidDetails?: {
+    name?: string;
+    phoneNumber?: string;
+    photoUrl?: string;
+    verificationStatus?: string;
+
+    serviceCategories?: string[];
+    serviceArea?: string;
+
+    distanceMeters?: number | null;
+    distanceText?: string | null;
+    etaText?: string | null;
+  };
+
+  createdAt?: any;
+  startedAt?: any;
+  completedAt?: any;
+  cancelledAt?: any;
+
+  cancellationReason?: string | null;
+
+  startOtpHash?: string | null;
+  startOtpUsedAt?: any;
+
+  extraTimeStatus?:
+    | "none"
+    | "requested"
+    | "accepted"
+    | "rejected";
+
+  requestedExtraMinutes?: number;
+  approvedExtraMinutes?: number;
+  totalDurationMinutes?: number;
+  extraTimeRequestedAt?: any;
+  extraTimeRespondedAt?: any;
+};
+
+type CancelReason =
+  | "Changed my plans"
+  | "Booked by mistake"
+  | "Found another Help"
+  | "Schedule no longer works"
+  | "Other";
+
+const CANCEL_REASONS: CancelReason[] = [
+  "Changed my plans",
+  "Booked by mistake",
+  "Found another Help",
+  "Schedule no longer works",
+  "Other",
+];
+
+function formatDateTime(
+  value: any,
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    const date =
+      typeof value?.toDate ===
+      "function"
+        ? value.toDate()
+        : new Date(value);
+
+    if (
+      Number.isNaN(
+        date.getTime(),
+      )
+    ) {
+      return "—";
     }
 
-    const unsubscribe = subscribeToBooking(
-      bookingId,
-      (updatedBooking) => {
-        setBooking(updatedBooking);
-        setError('');
-      },
-      (listenerError) => {
-        console.error(
-          '[BookingWaiting] Listener error:',
-          listenerError,
-        );
-
-        setError(
-          listenerError.message ||
-            'Unable to update your booking.',
-        );
+    return date.toLocaleString(
+      "en-IN",
+      {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       },
     );
+  } catch {
+    return "—";
+  }
+}
+
+function getDate(
+  value: any,
+): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    if (
+      typeof value?.toDate ===
+      "function"
+    ) {
+      return value.toDate();
+    }
+
+    const result =
+      new Date(value);
+
+    return Number.isNaN(
+      result.getTime(),
+    )
+      ? null
+      : result;
+  } catch {
+    return null;
+  }
+}
+
+function formatDuration(
+  totalSeconds: number,
+): string {
+  const safeSeconds =
+    Math.max(
+      0,
+      Math.floor(totalSeconds),
+    );
+
+  const hours =
+    Math.floor(
+      safeSeconds / 3600,
+    );
+
+  const minutes =
+    Math.floor(
+      (safeSeconds % 3600) / 60,
+    );
+
+  const seconds =
+    safeSeconds % 60;
+
+  return [
+    String(hours).padStart(
+      2,
+      "0",
+    ),
+    String(minutes).padStart(
+      2,
+      "0",
+    ),
+    String(seconds).padStart(
+      2,
+      "0",
+    ),
+  ].join(":");
+}
+
+function getInitials(
+  name?: string,
+): string {
+  const parts =
+    name
+      ?.trim()
+      .split(/\s+/)
+      .filter(Boolean) ?? [];
+
+  if (!parts.length) {
+    return "H";
+  }
+
+  return parts
+    .slice(0, 2)
+    .map(
+      (part) =>
+        part[0].toUpperCase(),
+    )
+    .join("");
+}
+
+function statusIndex(
+  status: BookingStatus,
+): number {
+  if (
+    status === "pending"
+  ) {
+    return 0;
+  }
+
+  if (
+    status === "assigned"
+  ) {
+    return 1;
+  }
+
+  if (
+    status === "confirmed"
+  ) {
+    return 2;
+  }
+
+  if (
+    status ===
+      "in_progress"
+  ) {
+    return 3;
+  }
+
+  if (
+    status === "completed"
+  ) {
+    return 4;
+  }
+
+  return -1;
+}
+
+export default function BookingWaitingScreen({
+  bookingId,
+}: {
+  bookingId: string;
+}) {
+  const [booking, setBooking] =
+    useState<Booking | null>(null);
+
+  const [otp, setOtp] =
+    useState<CustomerStartOtp | null>(
+      null,
+    );
+
+  const [isLoading, setIsLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [now, setNow] =
+    useState(
+      () => new Date(),
+    );
+
+  const [
+    showCancelSheet,
+    setShowCancelSheet,
+  ] = useState(false);
+
+  const [
+    isCancelling,
+    setIsCancelling,
+  ] = useState(false);
+
+  const [
+    isRequestingExtraTime,
+    setIsRequestingExtraTime,
+  ] = useState(false);
+
+  const [extraTimeError, setExtraTimeError] =
+    useState("");
+
+  const [
+    selectedReason,
+    setSelectedReason,
+  ] =
+    useState<CancelReason | null>(
+      null,
+    );
+
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToBooking(
+        bookingId,
+        (value) => {
+          setBooking(
+            value as Booking | null,
+          );
+
+          setIsLoading(false);
+          setError("");
+        },
+        (listenerError) => {
+          console.error(
+            "[BookingWaiting] Booking listener failed:",
+            listenerError,
+          );
+
+          setError(
+            listenerError.message ||
+              "Unable to load booking.",
+          );
+
+          setIsLoading(false);
+        },
+      );
 
     return unsubscribe;
   }, [bookingId]);
 
-  const scheduledDate = useMemo(() => {
-    if (!booking?.scheduledDateTime) {
-      return '';
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToCustomerStartOtp(
+        bookingId,
+        setOtp,
+        (otpError) => {
+          console.error(
+            "[BookingWaiting] OTP listener failed:",
+            otpError,
+          );
+        },
+      );
+
+    return unsubscribe;
+  }, [bookingId]);
+
+  useEffect(() => {
+    const timer =
+      setInterval(() => {
+        setNow(
+          new Date(),
+        );
+      }, 1000);
+
+    return () =>
+      clearInterval(timer);
+  }, []);
+
+  const status =
+    booking?.status ??
+    "pending";
+
+  const currentIndex =
+    statusIndex(status);
+
+  const scheduledAt =
+    getDate(
+      booking?.scheduledDateTime,
+    );
+
+  const canCancel = useMemo(() => {
+    if (
+      !booking ||
+      !scheduledAt
+    ) {
+      return false;
     }
 
-    const date =
-      booking.scheduledDateTime.toDate?.() ??
-      null;
-
-    if (!date) {
-      return '';
+    if (
+      ![
+        "pending",
+        "assigned",
+        "confirmed",
+      ].includes(status)
+    ) {
+      return false;
     }
 
-    return date.toLocaleDateString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  }, [booking]);
+    const oneHourMs =
+      60 *
+      60 *
+      1000;
 
-  const scheduledTime = useMemo(() => {
-    if (!booking?.scheduledDateTime) {
-      return '';
-    }
+    return (
+      scheduledAt.getTime() -
+        now.getTime() >
+      oneHourMs
+    );
+  }, [
+    booking,
+    scheduledAt,
+    status,
+    now,
+  ]);
 
-    const date =
-      booking.scheduledDateTime.toDate?.() ??
-      null;
+  const hoursUntilBooking =
+    scheduledAt
+      ? Math.max(
+          0,
+          (
+            scheduledAt.getTime() -
+            now.getTime()
+          ) /
+            (60 * 60 * 1000),
+        )
+      : null;
 
-    if (!date) {
-      return '';
-    }
+  const startDate =
+    getDate(
+      booking?.startedAt,
+    );
 
-    return date.toLocaleTimeString('en-IN', {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }, [booking]);
+  const completedDate =
+    getDate(
+      booking?.completedAt,
+    );
 
-  const isPending =
-    booking?.status === 'pending';
+  const originalBookedMinutes =
+    Number(
+      booking?.duration ??
+        0,
+    ) * 60;
 
-  const isAssigned =
-    booking?.status === 'assigned' ||
-    booking?.status === 'confirmed';
+  const approvedExtraMinutes =
+    Number(
+      booking?.approvedExtraMinutes ??
+        0,
+    );
 
-  const noMaidFound =
-    booking?.status === 'no_maid_found';
+  const configuredTotalMinutes =
+    Number(
+      booking?.totalDurationMinutes ??
+        0,
+    );
 
-  return (
-    <View style={styles.container}>
+  const totalBookedMinutes =
+    configuredTotalMinutes > 0
+      ? configuredTotalMinutes
+      : originalBookedMinutes +
+        approvedExtraMinutes;
+
+  const bookedSeconds =
+    Math.max(
+      0,
+      totalBookedMinutes * 60,
+    );
+
+  const elapsedSeconds =
+    startDate
+      ? Math.max(
+          0,
+          (
+            now.getTime() -
+            startDate.getTime()
+          ) / 1000,
+        )
+      : 0;
+
+  const remainingSeconds =
+    Math.max(
+      0,
+      bookedSeconds -
+        elapsedSeconds,
+    );
+
+  const progress =
+    bookedSeconds > 0
+      ? Math.min(
+          1,
+          elapsedSeconds /
+            bookedSeconds,
+        )
+      : 0;
+
+  const travelText =
+    booking?.maidDetails
+      ?.distanceText &&
+    booking?.maidDetails
+      ?.etaText
+      ? `${booking.maidDetails.distanceText} away • ${booking.maidDetails.etaText}`
+      : booking?.maidDetails
+          ?.distanceText ||
+        booking?.maidDetails
+          ?.etaText ||
+        "Travel estimate unavailable";
+
+  const callMaid =
+    async () => {
+      const phone =
+        booking?.maidDetails
+          ?.phoneNumber;
+
+      if (!phone) {
+        return;
+      }
+
+      try {
+        await Linking.openURL(
+          `tel:${phone}`,
+        );
+      } catch (linkError) {
+        console.error(
+          "[BookingWaiting] Could not open phone:",
+          linkError,
+        );
+      }
+    };
+
+  const handleExtraTimeRequest =
+    async (
+      extraMinutes: number,
+    ) => {
+      try {
+        setExtraTimeError("");
+        setIsRequestingExtraTime(true);
+
+        await requestExtraTime(
+          bookingId,
+          extraMinutes,
+        );
+      } catch (requestError) {
+        console.error(
+          "[BookingWaiting] Extra time request failed:",
+          requestError,
+        );
+
+        setExtraTimeError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to request extra time.",
+        );
+      } finally {
+        setIsRequestingExtraTime(false);
+      }
+    };
+
+  const handleCancel =
+    async () => {
+      if (
+        !selectedReason
+      ) {
+        return;
+      }
+
+      try {
+        setError("");
+        setIsCancelling(
+          true,
+        );
+
+        await cancelCustomerBooking(
+          bookingId,
+          selectedReason,
+        );
+
+        setShowCancelSheet(
+          false,
+        );
+        setSelectedReason(
+          null,
+        );
+      } catch (
+        cancelError
+      ) {
+        console.error(
+          "[BookingWaiting] Cancel failed:",
+          cancelError,
+        );
+
+        setError(
+          cancelError instanceof
+            Error
+            ? cancelError.message
+            : "Unable to cancel the booking.",
+        );
+      } finally {
+        setIsCancelling(
+          false,
+        );
+      }
+    };
+
+  if (isLoading) {
+    return (
       <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top + 10 },
-        ]}
+        style={
+          styles.centerScreen
+        }
       >
-        <Pressable
-          style={styles.closeButton}
-          onPress={() => router.replace('/customer')}
+        <ActivityIndicator
+          size="large"
+          color="#1F7A4C"
+        />
+
+        <Text
+          style={
+            styles.loadingText
+          }
         >
-          <Text style={styles.closeIcon}>×</Text>
+          Loading your booking...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!booking) {
+    return (
+      <View
+        style={
+          styles.centerScreen
+        }
+      >
+        <Text
+          style={
+            styles.emptyTitle
+          }
+        >
+          Booking not found
+        </Text>
+
+        <Pressable
+          style={
+            styles.primaryButton
+          }
+          onPress={() =>
+            router.replace(
+              "/customer",
+            )
+          }
+        >
+          <Text
+            style={
+              styles.primaryButtonText
+            }
+          >
+            Go to Home
+          </Text>
         </Pressable>
       </View>
+    );
+  }
 
-      <View style={styles.content}>
-        {isPending && (
-          <>
-            <View style={styles.loaderOuter}>
-              <View style={styles.loaderInner}>
-                <ActivityIndicator
-                  size="large"
-                  color="#1F7A4C"
-                />
-              </View>
-            </View>
-
-            <Text style={styles.title}>
-              Finding a Help for you
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Your booking request has been sent.
-              {'\n'}
-              We're finding the right Help for you.
-            </Text>
-          </>
-        )}
-
-        {isAssigned && (
-          <>
-            <View style={styles.successCircle}>
-              <Text style={styles.successIcon}>✓</Text>
-            </View>
-
-            <Text style={styles.title}>
-              Help found!
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Your booking has been assigned.
-              {'\n'}
-              We're getting everything ready for you.
-            </Text>
-          </>
-        )}
-
-        {noMaidFound && (
-          <>
-            <View style={styles.warningCircle}>
-              <Text style={styles.warningIcon}>!</Text>
-            </View>
-
-            <Text style={styles.title}>
-              No Help available
-            </Text>
-
-            <Text style={styles.subtitle}>
-              We couldn't find a Help for your
-              selected time.
-            </Text>
-
-            <Pressable
-              style={styles.retryButton}
-              onPress={() => router.back()}
+  return (
+    <>
+      <View
+        style={styles.container}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={
+            false
+          }
+          contentContainerStyle={
+            styles.content
+          }
+        >
+          <View
+            style={
+              styles.headerRow
+            }
+          >
+            <View
+              style={
+                styles.headerText
+              }
             >
-              <Text style={styles.retryText}>
-                Choose another time
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {!booking && !error && (
-          <>
-            <View style={styles.loaderOuter}>
-              <View style={styles.loaderInner}>
-                <ActivityIndicator
-                  size="large"
-                  color="#1F7A4C"
-                />
-              </View>
-            </View>
-
-            <Text style={styles.title}>
-              Loading your booking
-            </Text>
-          </>
-        )}
-
-        {error && (
-          <>
-            <View style={styles.errorCircle}>
-              <Text style={styles.errorCircleText}>
-                !
-              </Text>
-            </View>
-
-            <Text style={styles.title}>
-              Something went wrong
-            </Text>
-
-            <Text style={styles.subtitle}>
-              {error}
-            </Text>
-
-            <Pressable
-              style={styles.retryButton}
-              onPress={() => router.back()}
-            >
-              <Text style={styles.retryText}>
-                Go back
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {booking && (
-          <View style={styles.bookingCard}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>
-                Booking summary
-              </Text>
-
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>
-                  {isPending
-                    ? 'Finding Help'
-                    : isAssigned
-                      ? 'Assigned'
-                      : noMaidFound
-                        ? 'Unavailable'
-                        : booking.status}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>
-                Services
+              <Text
+                style={
+                  styles.eyebrow
+                }
+              >
+                HOMEHELP
               </Text>
 
               <Text
-                style={styles.infoValue}
-                numberOfLines={2}
+                style={
+                  styles.headerTitle
+                }
               >
-                {booking.categories?.length ?? 0}{' '}
-                selected
+                Your booking
               </Text>
             </View>
 
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>
-                Duration
+            {status !==
+            "completed" ? (
+              <View
+                style={
+                  styles.livePill
+                }
+              >
+                <View
+                  style={
+                    styles.liveDot
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.liveText
+                  }
+                >
+                  LIVE
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* MAIN STATUS */}
+
+          {status ===
+          "no_maid_found" ? (
+            <View
+              style={
+                styles.specialCard
+              }
+            >
+              <Text
+                style={
+                  styles.specialIcon
+                }
+              >
+                !
               </Text>
 
-              <Text style={styles.infoValue}>
-                {booking.duration}{' '}
-                {booking.duration === 1
-                  ? 'hour'
-                  : 'hours'}
+              <Text
+                style={
+                  styles.specialTitle
+                }
+              >
+                We couldn't find a
+                Help
+              </Text>
+
+              <Text
+                style={
+                  styles.specialText
+                }
+              >
+                No available Help
+                accepted this booking
+                request.
+              </Text>
+
+              <Pressable
+                style={
+                  styles.primaryButton
+                }
+                onPress={() =>
+                  router.replace(
+                    "/customer/book",
+                  )
+                }
+              >
+                <Text
+                  style={
+                    styles.primaryButtonText
+                  }
+                >
+                  Book again
+                </Text>
+              </Pressable>
+            </View>
+          ) : status ===
+            "cancelled" ? (
+            <View
+              style={
+                styles.specialCard
+              }
+            >
+              <Text
+                style={
+                  styles.specialIcon
+                }
+              >
+                ✓
+              </Text>
+
+              <Text
+                style={
+                  styles.specialTitle
+                }
+              >
+                Booking cancelled
+              </Text>
+
+              <Text
+                style={
+                  styles.specialText
+                }
+              >
+                {booking.cancellationReason ||
+                  "This booking has been cancelled."}
               </Text>
             </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>
-                Date
+          ) : (
+            <View
+              style={
+                styles.statusCard
+              }
+            >
+              <Text
+                style={
+                  styles.statusEyebrow
+                }
+              >
+                {status ===
+                "pending"
+                  ? "SEARCHING"
+                  : status ===
+                      "assigned"
+                    ? "HELP REQUEST SENT"
+                    : status ===
+                        "confirmed"
+                      ? "HELP CONFIRMED"
+                      : status ===
+                          "in_progress"
+                        ? "JOB IN PROGRESS"
+                        : "JOB COMPLETED"}
               </Text>
 
-              <Text style={styles.infoValue}>
-                {scheduledDate || '—'}
+              <Text
+                style={
+                  styles.statusTitle
+                }
+              >
+                {status ===
+                "pending"
+                  ? "Finding a Help for you"
+                  : status ===
+                      "assigned"
+                    ? "Finding the best available Help"
+                    : status ===
+                        "confirmed"
+                      ? "Your Help is confirmed"
+                      : status ===
+                          "in_progress"
+                        ? "Your job has started"
+                        : "Your booking is complete"}
+              </Text>
+
+              <Text
+                style={
+                  styles.statusSubtext
+                }
+              >
+                {status ===
+                "pending"
+                  ? "We're checking available Helps for your requested time."
+                  : status ===
+                      "assigned"
+                    ? "Your booking request has been sent to available Helps. The first valid acceptance confirms the booking."
+                    : status ===
+                        "confirmed"
+                      ? "Your Help has accepted the booking. Keep the start code ready for arrival."
+                      : status ===
+                          "in_progress"
+                        ? "Your booked hours are now running."
+                        : "The Help has marked this booking completed."}
+              </Text>
+
+              {status ===
+              "pending" ? (
+                <View
+                  style={
+                    styles.searchingIndicator
+                  }
+                >
+                  <ActivityIndicator
+                    color="#1F7A4C"
+                  />
+
+                  <Text
+                    style={
+                      styles.searchingText
+                    }
+                  >
+                    Looking for available
+                    Helps...
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          {/* STATUS STEPPER */}
+
+          {[
+            "pending",
+            "assigned",
+            "confirmed",
+            "in_progress",
+            "completed",
+          ].includes(status) ? (
+            <View
+              style={
+                styles.stepperCard
+              }
+            >
+              <StatusStep
+                label="Finding Help"
+                active={
+                  currentIndex >= 0
+                }
+                complete={
+                  currentIndex > 0
+                }
+                last={false}
+              />
+
+              <StatusStep
+                label="Help assigned"
+                active={
+                  currentIndex >= 1
+                }
+                complete={
+                  currentIndex > 1
+                }
+                last={false}
+              />
+
+              <StatusStep
+                label="Confirmed"
+                active={
+                  currentIndex >= 2
+                }
+                complete={
+                  currentIndex > 2
+                }
+                last={false}
+              />
+
+              <StatusStep
+                label="Job started"
+                active={
+                  currentIndex >= 3
+                }
+                complete={
+                  currentIndex > 3
+                }
+                last={false}
+              />
+
+              <StatusStep
+                label="Completed"
+                active={
+                  currentIndex >= 4
+                }
+                complete={
+                  currentIndex >= 4
+                }
+                last
+              />
+            </View>
+          ) : null}
+
+          {/* MAID CARD */}
+
+          {booking.maidDetails &&
+          [
+            "confirmed",
+            "in_progress",
+            "completed",
+          ].includes(status) ? (
+            <View
+              style={
+                styles.section
+              }
+            >
+              <Text
+                style={
+                  styles.sectionTitle
+                }
+              >
+                Your Help
+              </Text>
+
+              <View
+                style={
+                  styles.maidCard
+                }
+              >
+                {booking.maidDetails
+                  .photoUrl ? (
+                  <Image
+                    source={{
+                      uri:
+                        booking
+                          .maidDetails
+                          .photoUrl,
+                    }}
+                    style={
+                      styles.maidImage
+                    }
+                  />
+                ) : (
+                  <View
+                    style={
+                      styles.maidInitial
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.maidInitialText
+                      }
+                    >
+                      {getInitials(
+                        booking
+                          .maidDetails
+                          .name,
+                      )}
+                    </Text>
+                  </View>
+                )}
+
+                <View
+                  style={
+                    styles.maidInfo
+                  }
+                >
+                  <View
+                    style={
+                      styles.maidNameRow
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.maidName
+                      }
+                    >
+                      {booking
+                        .maidDetails
+                        .name ||
+                        "HomeHelp"}
+                    </Text>
+
+                    <View
+                      style={
+                        styles.verifiedBadge
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.verifiedBadgeText
+                        }
+                      >
+                        ✓ Verified
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text
+                    style={
+                      styles.maidArea
+                    }
+                  >
+                    {booking
+                      .maidDetails
+                      .serviceArea ||
+                      "Verified HomeHelp"}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.travelText
+                    }
+                  >
+                    {travelText}
+                  </Text>
+                </View>
+
+                {booking
+                  .maidDetails
+                  .phoneNumber ? (
+                  <Pressable
+                    style={
+                      styles.callButton
+                    }
+                    onPress={callMaid}
+                  >
+                    <Text
+                      style={
+                        styles.callIcon
+                      }
+                    >
+                      ☎
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.callText
+                      }
+                    >
+                      Call
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {/* START CODE */}
+
+          {status ===
+            "confirmed" &&
+          otp &&
+          !otp.usedAt ? (
+            <View
+              style={
+                styles.otpCard
+              }
+            >
+              <View
+                style={
+                  styles.otpHeaderRow
+                }
+              >
+                <View
+                  style={
+                    styles.otpIconCircle
+                  }
+                >
+                  <Text
+                    style={
+                      styles.otpIcon
+                    }
+                  >
+                    #
+                  </Text>
+                </View>
+
+                <View
+                  style={
+                    styles.otpHeaderText
+                  }
+                >
+                  <Text
+                    style={
+                      styles.otpTitle
+                    }
+                  >
+                    Your start code
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.otpSubtext
+                    }
+                  >
+                    Share this code only when
+                    your Help arrives.
+                  </Text>
+                </View>
+              </View>
+
+              <Text
+                style={
+                  styles.otpValue
+                }
+              >
+                {otp.otp}
+              </Text>
+
+              <Text
+                style={
+                  styles.otpHint
+                }
+              >
+                The Help must enter this code
+                to start your booked time.
               </Text>
             </View>
+          ) : null}
 
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>
-                Time
+          {/* JOB TIMER */}
+
+          {status ===
+          "in_progress" ? (
+            <View
+              style={
+                styles.timerCard
+              }
+            >
+              <Text
+                style={
+                  styles.timerLabel
+                }
+              >
+                BOOKED TIME
               </Text>
 
-              <Text style={styles.infoValue}>
-                {scheduledTime || '—'}
+              <Text
+                style={
+                  styles.timerValue
+                }
+              >
+                {formatDuration(
+                  remainingSeconds,
+                )}
+              </Text>
+
+              <View
+                style={
+                  styles.progressTrack
+                }
+              >
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.round(
+                        progress * 100,
+                      )}%`,
+                    },
+                  ]}
+                />
+              </View>
+
+              <Text
+                style={
+                  styles.timerSubtext
+                }
+              >
+                {remainingSeconds >
+                0
+                  ? `${formatDuration(
+                      elapsedSeconds,
+                    )} used of ${formatDuration(
+                      bookedSeconds,
+                    )}`
+                  : "Booked time has finished. The Help can now complete the job."}
               </Text>
             </View>
+          ) : null}
 
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>
-                Total
-              </Text>
+          {/* EXTRA TIME */}
 
-              <Text style={styles.totalValue}>
-                ₹{booking.totalPrice}
-              </Text>
+          {status === "in_progress" ? (
+            <View
+              style={
+                styles.extraTimeCard
+              }
+            >
+              {remainingSeconds > 0 ? (
+                <>
+                  <Text
+                    style={
+                      styles.extraTimeTitle
+                    }
+                  >
+                    Need more time?
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.extraTimeText
+                    }
+                  >
+                    Extra time can only be requested
+                    after your booked time is
+                    completed.
+                  </Text>
+
+                  <View
+                    style={
+                      styles.extraTimeButtons
+                    }
+                  >
+                    <Pressable
+                      disabled
+                      style={[
+                        styles.extraTimeButton,
+                        styles.extraTimeButtonDisabled,
+                      ]}
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonTextDisabled
+                        }
+                      >
+                        +30 min
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled
+                      style={[
+                        styles.extraTimeButton,
+                        styles.extraTimeButtonDisabled,
+                      ]}
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonTextDisabled
+                        }
+                      >
+                        +1 hour
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled
+                      style={[
+                        styles.extraTimeButton,
+                        styles.extraTimeButtonDisabled,
+                      ]}
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonTextDisabled
+                        }
+                      >
+                        +2 hours
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <View
+                    style={
+                      styles.extraTimeInfoBox
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.extraTimeInfoIcon
+                      }
+                    >
+                      i
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.extraTimeInfoText
+                      }
+                    >
+                      These options become available
+                      when the current booked time
+                      reaches 00:00:00.
+                    </Text>
+                  </View>
+                </>
+              ) : booking.extraTimeStatus ===
+                "requested" ? (
+                <>
+                  <Text
+                    style={
+                      styles.extraTimeTitle
+                    }
+                  >
+                    Extra time requested
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.extraTimeText
+                    }
+                  >
+                    Waiting for your Help to respond
+                    to the additional time request.
+                  </Text>
+
+                  <View
+                    style={
+                      styles.extraTimePending
+                    }
+                  >
+                    <ActivityIndicator
+                      size="small"
+                      color="#1F7A4C"
+                    />
+
+                    <Text
+                      style={
+                        styles.extraTimePendingText
+                      }
+                    >
+                      {Number(
+                        booking.requestedExtraMinutes ??
+                          0,
+                      ) >= 60
+                        ? `${Number(
+                            booking.requestedExtraMinutes ??
+                              0,
+                          ) / 60} hour${
+                            Number(
+                              booking.requestedExtraMinutes ??
+                                0,
+                            ) / 60 === 1
+                              ? ""
+                              : "s"
+                          } requested`
+                        : `${booking.requestedExtraMinutes ?? 0} minutes requested`}
+                    </Text>
+                  </View>
+                </>
+              ) : booking.extraTimeStatus ===
+                "accepted" ? (
+                <>
+                  <Text
+                    style={
+                      styles.extraTimeTitle
+                    }
+                  >
+                    Extra time accepted
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.extraTimeText
+                    }
+                  >
+                    Your Help accepted the
+                    additional time. Your booking
+                    duration has been extended.
+                  </Text>
+                </>
+              ) : booking.extraTimeStatus ===
+                "rejected" ? (
+                <>
+                  <Text
+                    style={
+                      styles.extraTimeTitle
+                    }
+                  >
+                    Extra time was declined
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.extraTimeText
+                    }
+                  >
+                    Your Help did not accept the
+                    additional time request.
+                  </Text>
+
+                  <View
+                    style={
+                      styles.extraTimeButtons
+                    }
+                  >
+                    <Pressable
+                      disabled={false}
+                      style={
+                        styles.extraTimeButton
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          30,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +30 min
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={
+                        styles.extraTimeButton
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          60,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +1 hour
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={
+                        styles.extraTimeButton
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          120,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +2 hours
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {extraTimeError ? (
+                    <Text
+                      style={
+                        styles.extraTimeError
+                      }
+                    >
+                      {extraTimeError}
+                    </Text>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Text
+                    style={
+                      styles.extraTimeTitle
+                    }
+                  >
+                    Booked time completed
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.extraTimeText
+                    }
+                  >
+                    Need more time to finish the
+                    work? Request additional time
+                    from your Help.
+                  </Text>
+
+                  <View
+                    style={
+                      styles.extraTimeButtons
+                    }
+                  >
+                    <Pressable
+                      style={[
+                        styles.extraTimeButton,
+                        isRequestingExtraTime &&
+                          styles.disabledButton,
+                      ]}
+                      disabled={
+                        isRequestingExtraTime
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          30,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +30 min
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.extraTimeButton,
+                        isRequestingExtraTime &&
+                          styles.disabledButton,
+                      ]}
+                      disabled={
+                        isRequestingExtraTime
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          60,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +1 hour
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.extraTimeButton,
+                        isRequestingExtraTime &&
+                          styles.disabledButton,
+                      ]}
+                      disabled={
+                        isRequestingExtraTime
+                      }
+                      onPress={() =>
+                        handleExtraTimeRequest(
+                          120,
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.extraTimeButtonText
+                        }
+                      >
+                        +2 hours
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {extraTimeError ? (
+                    <Text
+                      style={
+                        styles.extraTimeError
+                      }
+                    >
+                      {extraTimeError}
+                    </Text>
+                  ) : null}
+                </>
+              )}
+            </View>
+          ) : null}
+
+          {/* BOOKING DETAILS */}
+
+          <View
+            style={
+              styles.section
+            }
+          >
+            <Text
+              style={
+                styles.sectionTitle
+              }
+            >
+              Booking details
+            </Text>
+
+            <View
+              style={
+                styles.detailsCard
+              }
+            >
+              <DetailRow
+                label="Service"
+                value={
+                  booking.categories
+                    ?.join(", ") ||
+                  "HomeHelp service"
+                }
+              />
+
+              <DetailRow
+                label="Duration"
+                value={
+                  booking.duration
+                    ? `${booking.duration} hour${
+                        booking.duration ===
+                        1
+                          ? ""
+                          : "s"
+                      }`
+                    : "—"
+                }
+              />
+
+              <DetailRow
+                label="Scheduled"
+                value={formatDateTime(
+                  booking.scheduledDateTime,
+                )}
+              />
+
+              <DetailRow
+                label="Total"
+                value={
+                  typeof booking.totalPrice ===
+                  "number"
+                    ? `₹${booking.totalPrice}`
+                    : "—"
+                }
+              />
+
+              <DetailRow
+                label="Service address"
+                value={
+                  booking
+                    .customerAddress
+                    ?.formatted ||
+                  "—"
+                }
+                last
+              />
+
+              {booking
+                .customerAddress
+                ?.landmark ? (
+                <DetailRow
+                  label="Landmark"
+                  value={
+                    booking
+                      .customerAddress
+                      .landmark
+                  }
+                  last
+                />
+              ) : null}
             </View>
           </View>
-        )}
+
+          {/* STATUS INFO */}
+
+          {status ===
+          "confirmed" ? (
+            <View
+              style={
+                styles.infoCard
+              }
+            >
+              <Text
+                style={
+                  styles.infoTitle
+                }
+              >
+                What happens next?
+              </Text>
+
+              <Text
+                style={
+                  styles.infoText
+                }
+              >
+                Your Help will arrive at the
+                scheduled time. Show the start
+                code when they arrive. Once the
+                code is verified, your booked
+                hours start running.
+              </Text>
+            </View>
+          ) : null}
+
+          {status ===
+          "in_progress" ? (
+            <View
+              style={
+                styles.infoCard
+              }
+            >
+              <Text
+                style={
+                  styles.infoTitle
+                }
+              >
+                Job is in progress
+              </Text>
+
+              <Text
+                style={
+                  styles.infoText
+                }
+              >
+                Your timer started when the Help
+                verified your start code.
+                Completion is confirmed by the
+                Help after the work is finished.
+              </Text>
+            </View>
+          ) : null}
+
+          {status ===
+          "completed" ? (
+            <View
+              style={
+                styles.successInfoCard
+              }
+            >
+              <Text
+                style={
+                  styles.successTitle
+                }
+              >
+                ✓ Job completed
+              </Text>
+
+              <Text
+                style={
+                  styles.successText
+                }
+              >
+                Completed{" "}
+                {completedDate
+                  ? `on ${completedDate.toLocaleString(
+                      "en-IN",
+                    )}`
+                  : ""}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* CANCEL */}
+
+          {canCancel ? (
+            <View
+              style={
+                styles.cancelSection
+              }
+            >
+              <Text
+                style={
+                  styles.cancelHint
+                }
+              >
+                {hoursUntilBooking !==
+                null
+                  ? `${hoursUntilBooking.toFixed(
+                      1,
+                    )} hours until your booking`
+                  : ""}
+              </Text>
+
+              <Pressable
+                style={
+                  styles.cancelButton
+                }
+                onPress={() =>
+                  setShowCancelSheet(
+                    true,
+                  )
+                }
+              >
+                <Text
+                  style={
+                    styles.cancelButtonText
+                  }
+                >
+                  Cancel booking
+                </Text>
+              </Pressable>
+            </View>
+          ) : [
+              "pending",
+              "assigned",
+              "confirmed",
+            ].includes(status) &&
+            scheduledAt ? (
+            <View
+              style={
+                styles.lockedCancelCard
+              }
+            >
+              <Text
+                style={
+                  styles.lockedCancelTitle
+                }
+              >
+                Cancellation unavailable
+              </Text>
+
+              <Text
+                style={
+                  styles.lockedCancelText
+                }
+              >
+                Cancellation is available only
+                more than 1 hour before the
+                scheduled start time.
+              </Text>
+            </View>
+          ) : null}
+
+          {error ? (
+            <View
+              style={
+                styles.errorCard
+              }
+            >
+              <Text
+                style={
+                  styles.errorText
+                }
+              >
+                {error}
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
       </View>
 
-      {isPending && (
+      {/* CANCELLATION SHEET */}
+
+      <Modal
+        visible={
+          showCancelSheet
+        }
+        transparent
+        animationType="slide"
+        onRequestClose={() =>
+          setShowCancelSheet(
+            false,
+          )
+        }
+      >
+        <View
+          style={
+            styles.modalOverlay
+          }
+        >
+          <View
+            style={
+              styles.cancelSheet
+            }
+          >
+            <View
+              style={
+                styles.sheetHandle
+              }
+            />
+
+            <Text
+              style={
+                styles.sheetTitle
+              }
+            >
+              Why are you cancelling?
+            </Text>
+
+            <Text
+              style={
+                styles.sheetSubtitle
+              }
+            >
+              Please select a reason so we
+              can improve HomeHelp.
+            </Text>
+
+            {CANCEL_REASONS.map(
+              (reason) => {
+                const selected =
+                  selectedReason ===
+                  reason;
+
+                return (
+                  <Pressable
+                    key={reason}
+                    style={[
+                      styles.reasonOption,
+                      selected &&
+                        styles.reasonSelected,
+                    ]}
+                    onPress={() =>
+                      setSelectedReason(
+                        reason,
+                      )
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.radio,
+                        selected &&
+                          styles.radioSelected,
+                      ]}
+                    >
+                      {selected ? (
+                        <View
+                          style={
+                            styles.radioDot
+                          }
+                        />
+                      ) : null}
+                    </View>
+
+                    <Text
+                      style={
+                        styles.reasonText
+                      }
+                    >
+                      {reason}
+                    </Text>
+                  </Pressable>
+                );
+              },
+            )}
+
+            <Pressable
+              disabled={
+                !selectedReason ||
+                isCancelling
+              }
+              style={[
+                styles.confirmCancelButton,
+                (!selectedReason ||
+                  isCancelling) &&
+                  styles.disabledButton,
+              ]}
+              onPress={
+                handleCancel
+              }
+            >
+              {isCancelling ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                />
+              ) : (
+                <Text
+                  style={
+                    styles.confirmCancelText
+                  }
+                >
+                  Confirm cancellation
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={
+                styles.keepButton
+              }
+              onPress={() =>
+                setShowCancelSheet(
+                  false,
+                )
+              }
+              disabled={
+                isCancelling
+              }
+            >
+              <Text
+                style={
+                  styles.keepButtonText
+                }
+              >
+                Keep booking
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function StatusStep({
+  label,
+  active,
+  complete,
+  last,
+}: {
+  label: string;
+  active: boolean;
+  complete: boolean;
+  last: boolean;
+}) {
+  return (
+    <View
+      style={
+        styles.stepWrapper
+      }
+    >
+      <View
+        style={
+          styles.stepLeft
+        }
+      >
         <View
           style={[
-            styles.bottomHint,
-            { paddingBottom: insets.bottom + 18 },
+            styles.stepCircle,
+            active &&
+              styles.stepCircleActive,
           ]}
         >
-          <Text style={styles.bottomHintText}>
-            Please keep the app open while we find
-            your Help.
-          </Text>
+          {complete ? (
+            <Text
+              style={
+                styles.stepCheck
+              }
+            >
+              ✓
+            </Text>
+          ) : (
+            <View
+              style={[
+                styles.stepInner,
+                active &&
+                  styles.stepInnerActive,
+              ]}
+            />
+          )}
         </View>
-      )}
+
+        {!last ? (
+          <View
+            style={[
+              styles.stepLine,
+              complete &&
+                styles.stepLineActive,
+            ]}
+          />
+        ) : null}
+      </View>
+
+      <Text
+        style={[
+          styles.stepLabel,
+          active &&
+            styles.stepLabelActive,
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F7F8F6',
-  },
+function DetailRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View>
+      <View
+        style={
+          styles.detailRow
+        }
+      >
+        <Text
+          style={
+            styles.detailLabel
+          }
+        >
+          {label}
+        </Text>
 
-  header: {
-    paddingHorizontal: 20,
-    alignItems: 'flex-end',
-  },
+        <Text
+          style={
+            styles.detailValue
+          }
+        >
+          {value}
+        </Text>
+      </View>
 
-  closeButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+      {!last ? (
+        <View
+          style={
+            styles.detailDivider
+          }
+        />
+      ) : null}
+    </View>
+  );
+}
 
-  closeIcon: {
-    fontSize: 28,
-    lineHeight: 30,
-    color: '#333333',
-    fontWeight: '400',
-  },
+const styles =
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor:
+        "#F7F8F6",
+    },
 
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 22,
-    paddingTop: 65,
-  },
+    content: {
+      paddingHorizontal: 20,
+      paddingTop: 24,
+      paddingBottom: 40,
+    },
 
-  loaderOuter: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: '#E7F3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    centerScreen: {
+      flex: 1,
+      backgroundColor:
+        "#F7F8F6",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      padding: 24,
+    },
 
-  loaderInner: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    loadingText: {
+      marginTop: 12,
+      fontSize: 13,
+      color: "#747A75",
+    },
 
-  successCircle: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: '#DDF1E4',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent:
+        "space-between",
+      marginBottom: 20,
+    },
 
-  successIcon: {
-    fontSize: 55,
-    fontWeight: '700',
-    color: '#1F7A4C',
-  },
+    headerText: {
+      flex: 1,
+    },
 
-  warningCircle: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: '#FFF1DA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    eyebrow: {
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1.2,
+      color: "#1F7A4C",
+    },
 
-  warningIcon: {
-    fontSize: 50,
-    fontWeight: '800',
-    color: '#A86400',
-  },
+    headerTitle: {
+      marginTop: 5,
+      fontSize: 27,
+      fontWeight: "800",
+      color: "#111411",
+    },
 
-  errorCircle: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: '#FDE8E7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    livePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 10,
+      backgroundColor:
+        "#EAF5EE",
+    },
 
-  errorCircleText: {
-    fontSize: 50,
-    fontWeight: '800',
-    color: '#B42318',
-  },
+    liveDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor:
+        "#1F7A4C",
+      marginRight: 6,
+    },
 
-  title: {
-    marginTop: 28,
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    color: '#111111',
-    textAlign: 'center',
-  },
+    liveText: {
+      fontSize: 9,
+      fontWeight: "900",
+      color: "#1F7A4C",
+    },
 
-  subtitle: {
-    marginTop: 11,
-    fontSize: 14,
-    lineHeight: 21,
-    color: '#707772',
-    textAlign: 'center',
-  },
+    statusCard: {
+      padding: 20,
+      borderRadius: 22,
+      backgroundColor:
+        "#172018",
+    },
 
-  bookingCard: {
-    width: '100%',
-    marginTop: 38,
-    padding: 18,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E7EAE7',
-  },
+    statusEyebrow: {
+      fontSize: 9,
+      letterSpacing: 1.3,
+      fontWeight: "800",
+      color: "#AEB9AF",
+    },
 
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+    statusTitle: {
+      marginTop: 8,
+      fontSize: 24,
+      lineHeight: 31,
+      fontWeight: "800",
+      color: "#FFFFFF",
+    },
 
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#111111',
-  },
+    statusSubtext: {
+      marginTop: 9,
+      fontSize: 12,
+      lineHeight: 19,
+      color: "#C5CEC6",
+    },
 
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: '#EEF6F1',
-  },
+    searchingIndicator: {
+      marginTop: 18,
+      flexDirection: "row",
+      alignItems: "center",
+    },
 
-  statusText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#1F7A4C',
-  },
+    searchingText: {
+      marginLeft: 9,
+      fontSize: 11,
+      fontWeight: "700",
+      color: "#D2D9D3",
+    },
 
-  divider: {
-    height: 1,
-    backgroundColor: '#ECEFEC',
-    marginVertical: 15,
-  },
+    stepperCard: {
+      marginTop: 15,
+      padding: 16,
+      borderRadius: 19,
+      backgroundColor:
+        "#FFFFFF",
+      borderWidth: 1,
+      borderColor:
+        "#E1E6E2",
+    },
 
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
+    stepWrapper: {
+      minHeight: 39,
+      flexDirection: "row",
+    },
 
-  infoLabel: {
-    fontSize: 13,
-    color: '#858B87',
-  },
+    stepLeft: {
+      width: 26,
+      alignItems: "center",
+    },
 
-  infoValue: {
-    maxWidth: '58%',
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#222222',
-    textAlign: 'right',
-  },
+    stepCircle: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor:
+        "#E5E9E6",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
 
-  totalRow: {
-    marginTop: 4,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#ECEFEC',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+    stepCircleActive: {
+      backgroundColor:
+        "#1F7A4C",
+    },
 
-  totalLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111111',
-  },
+    stepInner: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor:
+        "#AAB1AB",
+    },
 
-  totalValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#1F7A4C',
-  },
+    stepInnerActive: {
+      backgroundColor:
+        "#FFFFFF",
+    },
 
-  retryButton: {
-    marginTop: 28,
-    minWidth: 210,
-    height: 50,
-    paddingHorizontal: 22,
-    borderRadius: 15,
-    backgroundColor: '#1F7A4C',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    stepCheck: {
+      fontSize: 11,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
 
-  retryText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
+    stepLine: {
+      flex: 1,
+      width: 2,
+      marginVertical: 2,
+      backgroundColor:
+        "#E2E6E3",
+    },
 
-  bottomHint: {
-    paddingHorizontal: 24,
-    alignItems: 'center',
-  },
+    stepLineActive: {
+      backgroundColor:
+        "#1F7A4C",
+    },
 
-  bottomHintText: {
-    fontSize: 11,
-    lineHeight: 17,
-    color: '#858B87',
-    textAlign: 'center',
-  },
-});
+    stepLabel: {
+      marginLeft: 10,
+      paddingTop: 1,
+      fontSize: 11,
+      fontWeight: "600",
+      color: "#8A908B",
+    },
+
+    stepLabelActive: {
+      color: "#1D251F",
+      fontWeight: "800",
+    },
+
+    section: {
+      marginTop: 22,
+    },
+
+    sectionTitle: {
+      fontSize: 17,
+      fontWeight: "800",
+      color: "#171917",
+      marginBottom: 10,
+    },
+
+    maidCard: {
+      padding: 14,
+      borderRadius: 19,
+      backgroundColor:
+        "#FFFFFF",
+      borderWidth: 1,
+      borderColor:
+        "#E1E6E2",
+      flexDirection: "row",
+      alignItems: "center",
+    },
+
+    maidImage: {
+      width: 58,
+      height: 58,
+      borderRadius: 29,
+      backgroundColor:
+        "#E7ECE8",
+    },
+
+    maidInitial: {
+      width: 58,
+      height: 58,
+      borderRadius: 29,
+      backgroundColor:
+        "#DCEFE3",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    maidInitialText: {
+      fontSize: 20,
+      fontWeight: "900",
+      color: "#1F7A4C",
+    },
+
+    maidInfo: {
+      flex: 1,
+      marginLeft: 11,
+    },
+
+    maidNameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+    },
+
+    maidName: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: "#171917",
+    },
+
+    verifiedBadge: {
+      marginLeft: 7,
+      marginTop: 2,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 7,
+      backgroundColor:
+        "#EAF5EE",
+    },
+
+    verifiedBadgeText: {
+      fontSize: 8,
+      fontWeight: "900",
+      color: "#1F7A4C",
+    },
+
+    maidArea: {
+      marginTop: 4,
+      fontSize: 10,
+      color: "#747A75",
+    },
+
+    travelText: {
+      marginTop: 5,
+      fontSize: 10,
+      fontWeight: "700",
+      color: "#1F7A4C",
+    },
+
+    callButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 15,
+      backgroundColor:
+        "#EEF6F1",
+      alignItems: "center",
+      justifyContent:
+        "center",
+      marginLeft: 8,
+    },
+
+    callIcon: {
+      fontSize: 17,
+      color: "#1F7A4C",
+    },
+
+    callText: {
+      marginTop: 2,
+      fontSize: 8,
+      fontWeight: "800",
+      color: "#1F7A4C",
+    },
+
+    otpCard: {
+      marginTop: 18,
+      padding: 18,
+      borderRadius: 20,
+      backgroundColor:
+        "#EEF7F1",
+      borderWidth: 1,
+      borderColor:
+        "#C9E0D1",
+      alignItems: "center",
+    },
+
+    otpHeaderRow: {
+      width: "100%",
+      flexDirection: "row",
+      alignItems: "center",
+    },
+
+    otpIconCircle: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor:
+        "#D7EBDD",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    otpIcon: {
+      fontSize: 19,
+      fontWeight: "900",
+      color: "#1F7A4C",
+    },
+
+    otpHeaderText: {
+      flex: 1,
+      marginLeft: 10,
+    },
+
+    otpTitle: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: "#162018",
+    },
+
+    otpSubtext: {
+      marginTop: 2,
+      fontSize: 10,
+      lineHeight: 15,
+      color: "#657068",
+    },
+
+    otpValue: {
+      marginTop: 15,
+      fontSize: 33,
+      letterSpacing: 8,
+      fontWeight: "900",
+      color: "#172018",
+    },
+
+    otpHint: {
+      marginTop: 8,
+      fontSize: 10,
+      lineHeight: 15,
+      textAlign: "center",
+      color: "#687269",
+    },
+
+    timerCard: {
+      marginTop: 18,
+      padding: 20,
+      borderRadius: 20,
+      backgroundColor:
+        "#172018",
+      alignItems: "center",
+    },
+
+    timerLabel: {
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.4,
+      color: "#AEB9AF",
+    },
+
+    timerValue: {
+      marginTop: 8,
+      fontSize: 38,
+      letterSpacing: 2,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
+
+    progressTrack: {
+      width: "100%",
+      height: 7,
+      marginTop: 14,
+      borderRadius: 4,
+      backgroundColor:
+        "#3A453D",
+      overflow: "hidden",
+    },
+
+    progressFill: {
+      height: "100%",
+      borderRadius: 4,
+      backgroundColor:
+        "#70C493",
+    },
+
+    timerSubtext: {
+      marginTop: 9,
+      fontSize: 10,
+      color: "#C3CCC4",
+    },
+
+    detailsCard: {
+      paddingHorizontal: 15,
+      borderRadius: 18,
+      backgroundColor:
+        "#FFFFFF",
+      borderWidth: 1,
+      borderColor:
+        "#E2E7E3",
+    },
+
+    detailRow: {
+      minHeight: 57,
+      flexDirection: "row",
+      alignItems: "center",
+    },
+
+    detailLabel: {
+      width: 105,
+      fontSize: 11,
+      color: "#818781",
+    },
+
+    detailValue: {
+      flex: 1,
+      fontSize: 12,
+      lineHeight: 17,
+      textAlign: "right",
+      fontWeight: "700",
+      color: "#252A26",
+    },
+
+    detailDivider: {
+      height: 1,
+      backgroundColor:
+        "#ECEFEC",
+    },
+
+    extraTimeCard: {
+      marginTop: 18,
+      padding: 17,
+      borderRadius: 18,
+      backgroundColor: "#EEF7F1",
+      borderWidth: 1,
+      borderColor: "#C9E0D1",
+    },
+
+    extraTimeTitle: {
+      fontSize: 16,
+      fontWeight: "800",
+      color: "#172018",
+    },
+
+    extraTimeText: {
+      marginTop: 6,
+      fontSize: 11,
+      lineHeight: 17,
+      color: "#687269",
+    },
+
+    extraTimeButtons: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: 14,
+    },
+
+    extraTimeButton: {
+      flex: 1,
+      minHeight: 45,
+      paddingHorizontal: 8,
+      borderRadius: 12,
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "#BFD8C8",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    extraTimeButtonText: {
+      fontSize: 11,
+      fontWeight: "800",
+      color: "#1F7A4C",
+    },
+
+    extraTimeButtonDisabled: {
+      backgroundColor: "#F1F3F1",
+      borderColor: "#E0E4E0",
+      opacity: 0.75,
+    },
+
+    extraTimeButtonTextDisabled: {
+      fontSize: 11,
+      fontWeight: "800",
+      color: "#9AA19B",
+    },
+
+    extraTimeInfoBox: {
+      marginTop: 12,
+      paddingHorizontal: 11,
+      paddingVertical: 10,
+      borderRadius: 11,
+      backgroundColor: "#FFF8E8",
+      borderWidth: 1,
+      borderColor: "#F0E2B8",
+      flexDirection: "row",
+      alignItems: "flex-start",
+    },
+
+    extraTimeInfoIcon: {
+      width: 17,
+      height: 17,
+      borderRadius: 9,
+      backgroundColor: "#C99525",
+      color: "#FFFFFF",
+      fontSize: 10,
+      fontWeight: "900",
+      textAlign: "center",
+      lineHeight: 17,
+      marginRight: 8,
+    },
+
+    extraTimeInfoText: {
+      flex: 1,
+      fontSize: 10,
+      lineHeight: 15,
+      color: "#7B6837",
+    },
+
+    extraTimePending: {
+      marginTop: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 11,
+      borderRadius: 12,
+      backgroundColor: "#FFFFFF",
+    },
+
+    extraTimePendingText: {
+      marginLeft: 9,
+      fontSize: 11,
+      fontWeight: "700",
+      color: "#4D5A51",
+    },
+
+    extraTimeError: {
+      marginTop: 10,
+      fontSize: 10,
+      lineHeight: 15,
+      color: "#B42318",
+    },
+
+    infoCard: {
+      marginTop: 18,
+      padding: 15,
+      borderRadius: 17,
+      backgroundColor:
+        "#FFF9EB",
+      borderWidth: 1,
+      borderColor:
+        "#F1E1B5",
+    },
+
+    infoTitle: {
+      fontSize: 13,
+      fontWeight: "800",
+      color: "#6D5312",
+    },
+
+    infoText: {
+      marginTop: 5,
+      fontSize: 11,
+      lineHeight: 17,
+      color: "#7A6734",
+    },
+
+    successInfoCard: {
+      marginTop: 18,
+      padding: 15,
+      borderRadius: 17,
+      backgroundColor:
+        "#EAF5EE",
+      borderWidth: 1,
+      borderColor:
+        "#C9E0D1",
+    },
+
+    successTitle: {
+      fontSize: 14,
+      fontWeight: "900",
+      color: "#1F7A4C",
+    },
+
+    successText: {
+      marginTop: 4,
+      fontSize: 11,
+      color: "#667168",
+    },
+
+    cancelSection: {
+      marginTop: 22,
+      alignItems: "center",
+    },
+
+    cancelHint: {
+      fontSize: 10,
+      color: "#858B86",
+      marginBottom: 8,
+    },
+
+    cancelButton: {
+      height: 46,
+      paddingHorizontal: 25,
+      borderRadius: 14,
+      backgroundColor:
+        "#FFF3F1",
+      borderWidth: 1,
+      borderColor:
+        "#F2D6D1",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    cancelButtonText: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: "#B42318",
+    },
+
+    lockedCancelCard: {
+      marginTop: 20,
+      padding: 14,
+      borderRadius: 15,
+      backgroundColor:
+        "#F0F1F0",
+      borderWidth: 1,
+      borderColor:
+        "#E2E5E2",
+    },
+
+    lockedCancelTitle: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: "#666C67",
+    },
+
+    lockedCancelText: {
+      marginTop: 4,
+      fontSize: 10,
+      lineHeight: 15,
+      color: "#858A86",
+    },
+
+    errorCard: {
+      marginTop: 18,
+      padding: 12,
+      borderRadius: 13,
+      backgroundColor:
+        "#FFF2F0",
+    },
+
+    errorText: {
+      fontSize: 11,
+      lineHeight: 16,
+      color: "#B42318",
+    },
+
+    specialCard: {
+      padding: 22,
+      borderRadius: 21,
+      backgroundColor:
+        "#FFFFFF",
+      borderWidth: 1,
+      borderColor:
+        "#E2E7E3",
+      alignItems: "center",
+    },
+
+    specialIcon: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      textAlign: "center",
+      textAlignVertical:
+        "center",
+      backgroundColor:
+        "#FFF1ED",
+      color: "#B42318",
+      fontSize: 23,
+      fontWeight: "900",
+    },
+
+    specialTitle: {
+      marginTop: 12,
+      fontSize: 17,
+      fontWeight: "800",
+      color: "#191D1A",
+      textAlign: "center",
+    },
+
+    specialText: {
+      marginTop: 6,
+      maxWidth: 290,
+      fontSize: 12,
+      lineHeight: 18,
+      color: "#767D77",
+      textAlign: "center",
+    },
+
+    primaryButton: {
+      marginTop: 18,
+      minWidth: 150,
+      height: 46,
+      paddingHorizontal: 18,
+      borderRadius: 14,
+      backgroundColor:
+        "#1F7A4C",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    primaryButtonText: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: "#FFFFFF",
+    },
+
+    modalOverlay: {
+      flex: 1,
+      backgroundColor:
+        "rgba(0,0,0,0.42)",
+      justifyContent:
+        "flex-end",
+    },
+
+    cancelSheet: {
+      paddingHorizontal: 20,
+      paddingTop: 10,
+      paddingBottom: 26,
+      borderTopLeftRadius: 25,
+      borderTopRightRadius: 25,
+      backgroundColor:
+        "#FFFFFF",
+    },
+
+    sheetHandle: {
+      alignSelf: "center",
+      width: 42,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor:
+        "#D9DED9",
+    },
+
+    sheetTitle: {
+      marginTop: 17,
+      fontSize: 19,
+      fontWeight: "800",
+      color: "#161A17",
+    },
+
+    sheetSubtitle: {
+      marginTop: 5,
+      marginBottom: 15,
+      fontSize: 11,
+      lineHeight: 17,
+      color: "#7C837D",
+    },
+
+    reasonOption: {
+      minHeight: 46,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor:
+        "#E5E9E5",
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 8,
+    },
+
+    reasonSelected: {
+      borderColor:
+        "#8EC4A4",
+      backgroundColor:
+        "#F0F8F3",
+    },
+
+    radio: {
+      width: 19,
+      height: 19,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor:
+        "#A4ACA5",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    radioSelected: {
+      borderColor:
+        "#1F7A4C",
+    },
+
+    radioDot: {
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+      backgroundColor:
+        "#1F7A4C",
+    },
+
+    reasonText: {
+      marginLeft: 10,
+      fontSize: 12,
+      fontWeight: "600",
+      color: "#343A35",
+    },
+
+    confirmCancelButton: {
+      marginTop: 8,
+      height: 50,
+      borderRadius: 15,
+      backgroundColor:
+        "#B42318",
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    confirmCancelText: {
+      fontSize: 13,
+      fontWeight: "800",
+      color: "#FFFFFF",
+    },
+
+    disabledButton: {
+      opacity: 0.5,
+    },
+
+    keepButton: {
+      marginTop: 8,
+      height: 44,
+      alignItems: "center",
+      justifyContent:
+        "center",
+    },
+
+    keepButtonText: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: "#4B534D",
+    },
+
+    emptyTitle: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: "#171B18",
+      textAlign: "center",
+    },
+  });

@@ -1,0 +1,218 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isCustomerForBooking(bookingId) {
+      return isSignedIn()
+        && get(
+          /databases/$(database)/documents/bookings/$(bookingId)
+        ).data.customerId
+          == request.auth.uid;
+    }
+
+    /*
+     * -----------------------------------------
+     * USERS
+     * -----------------------------------------
+     */
+    match /users/{userId} {
+      allow read, create, update: if
+        isSignedIn()
+        && request.auth.uid == userId;
+
+      allow delete: if false;
+    }
+
+    /*
+     * -----------------------------------------
+     * MAIDS
+     * -----------------------------------------
+     */
+    match /maids/{maidId} {
+      allow read: if isSignedIn();
+
+      allow create, update: if
+        isSignedIn()
+        && request.auth.uid == maidId;
+
+      allow delete: if false;
+    }
+
+    /*
+     * -----------------------------------------
+     * CATEGORIES
+     * -----------------------------------------
+     */
+    match /categories/{categoryId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    /*
+     * -----------------------------------------
+     * BOOKINGS
+     * -----------------------------------------
+     */
+    match /bookings/{bookingId} {
+
+      allow create: if
+        isSignedIn()
+        && request.resource.data.customerId
+          == request.auth.uid;
+
+      /*
+       * Customer or assigned maid can read.
+       */
+      allow read: if
+        isSignedIn()
+        && (
+          resource.data.customerId
+            == request.auth.uid
+          ||
+          resource.data.maidId
+            == request.auth.uid
+          ||
+          resource.data.winningMaidId
+            == request.auth.uid
+        );
+
+      /*
+       * Booking state changes happen through
+       * Cloud Functions.
+       *
+       * Therefore clients cannot directly update
+       * the booking document.
+       */
+      allow update: if false;
+
+      allow delete: if false;
+
+      /*
+       * ---------------------------------------
+       * MAID REQUESTS
+       * ---------------------------------------
+       */
+      match /maidRequests/{requestMaidId} {
+
+        /*
+         * Assigned maid can read her request.
+         */
+        allow read: if
+          isSignedIn()
+          && resource.data.maidId
+             == request.auth.uid;
+
+        allow create: if false;
+
+        /*
+         * Maid may change only response fields.
+         */
+        allow update: if
+          isSignedIn()
+          && resource.data.maidId
+             == request.auth.uid
+          && request.resource.data.maidId
+             == request.auth.uid
+          && request.resource.data
+               .diff(resource.data)
+               .affectedKeys()
+               .hasOnly([
+                 'response',
+                 'responseReason',
+                 'updatedAt'
+               ])
+          && (
+            request.resource.data.response
+              == 'pending'
+            ||
+            request.resource.data.response
+              == 'accepted'
+            ||
+            request.resource.data.response
+              == 'rejected'
+          );
+
+        allow delete: if false;
+      }
+
+      /*
+       * ---------------------------------------
+       * CUSTOMER-ONLY BOOKING SECRET
+       * ---------------------------------------
+       *
+       * Plain OTP lives here.
+       *
+       * Assigned maid must NEVER be able to read it.
+       */
+      match /customerSecrets/{secretId} {
+
+        allow read: if
+          isCustomerForBooking(
+            bookingId
+          );
+
+        /*
+         * Secret is generated/updated only by
+         * Cloud Functions/Admin SDK.
+         */
+        allow create, update, delete: if false;
+      }
+    }
+
+    /*
+     * -----------------------------------------
+     * COLLECTION GROUP MAID REQUESTS
+     * -----------------------------------------
+     */
+    match /{path=**}/maidRequests/{requestMaidId} {
+
+      allow read: if
+        isSignedIn()
+        && resource.data.maidId
+           == request.auth.uid;
+
+      allow create: if false;
+
+      allow update: if
+        isSignedIn()
+        && resource.data.maidId
+           == request.auth.uid
+        && request.resource.data.maidId
+           == request.auth.uid
+        && request.resource.data
+             .diff(resource.data)
+             .affectedKeys()
+             .hasOnly([
+               'response',
+               'responseReason',
+               'updatedAt'
+             ])
+        && (
+          request.resource.data.response
+            == 'pending'
+          ||
+          request.resource.data.response
+            == 'accepted'
+          ||
+          request.resource.data.response
+            == 'rejected'
+        );
+
+      allow delete: if false;
+    }
+
+    /*
+     * -----------------------------------------
+     * EVERYTHING ELSE
+     * -----------------------------------------
+     */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

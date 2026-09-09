@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
+import MaidActiveBookingScreen from "../../../src/features/maid/MaidActiveBookingScreen";
 
-import BookingWaitingScreen from "../../../src/features/customer/BookingWaitingScreen";
 
-export default function CustomerBookingRoute() {
+export default function MaidBookingRoute() {
   const { bookingId } =
     useLocalSearchParams<{
       bookingId?: string | string[];
@@ -17,7 +17,7 @@ export default function CustomerBookingRoute() {
   }
 
   return (
-    <BookingWaitingScreen
+    <MaidActiveBookingScreen
       bookingId={normalizedBookingId}
     />
   );
