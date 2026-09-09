@@ -23,6 +23,12 @@
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4a3e07c5-4f59-4ac0-8ccb-2e88b2cc1cea"
+      }
+    }
   }
 }
