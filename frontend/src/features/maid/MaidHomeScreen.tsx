@@ -116,8 +116,8 @@ const copy = {
 
     profile: 'Profile',
     home: 'Home',
-    requests: 'Requests',
-    history: 'History',
+    bookings: 'Bookings',
+    history: 'Job History',
 
     loading: 'Loading your HomeHelp...',
     availabilityUpdating: 'Updating...',
@@ -167,8 +167,8 @@ const copy = {
 
     profile: 'प्रोफ़ाइल',
     home: 'होम',
-    requests: 'अनुरोध',
-    history: 'इतिहास',
+    bookings: 'बुकिंग्स',
+    history: 'काम का इतिहास',
 
     loading: 'HomeHelp लोड हो रहा है...',
     availabilityUpdating: 'अपडेट हो रहा है...',
@@ -910,7 +910,7 @@ export default function MaidHomeScreen() {
               insets.top + 16,
 
             paddingBottom:
-              insets.bottom + 98,
+              insets.bottom + 106,
           },
         ]}
       >
@@ -1018,36 +1018,6 @@ export default function MaidHomeScreen() {
                 </Text>
               </Pressable>
             </View>
-
-            <Pressable
-              style={styles.avatar}
-              onPress={() =>
-                router.push(
-                  '/maid/profile',
-                )
-              }
-            >
-              {profile.photoUrl ? (
-                <Image
-                  source={{
-                    uri: profile.photoUrl,
-                  }}
-                  style={
-                    styles.avatarImage
-                  }
-                />
-              ) : (
-                <Text
-                  style={
-                    styles.avatarText
-                  }
-                >
-                  {getInitials(
-                    profile.name,
-                  )}
-                </Text>
-              )}
-            </Pressable>
           </View>
         </View>
 
@@ -1646,7 +1616,7 @@ export default function MaidHomeScreen() {
           style={styles.navItem}
           onPress={() =>
             router.push(
-              '/maid/requests',
+              '/maid/bookings',
             )
           }
         >
@@ -1659,7 +1629,7 @@ export default function MaidHomeScreen() {
           <Text
             style={styles.navLabel}
           >
-            {t.requests}
+            {t.bookings}
           </Text>
         </Pressable>
 
@@ -1692,16 +1662,24 @@ export default function MaidHomeScreen() {
             )
           }
         >
-          <Text
-            style={styles.navIcon}
-          >
-            ○
-          </Text>
+          <View style={styles.navProfileImageWrap}>
+            {profile.photoUrl ? (
+              <Image
+                source={{ uri: profile.photoUrl }}
+                style={styles.navProfileImage}
+              />
+            ) : (
+              <Text style={styles.navProfileInitials}>
+                {getInitials(profile.name)}
+              </Text>
+            )}
+          </View>
 
           <Text
-            style={styles.navLabel}
+            numberOfLines={1}
+            style={styles.navProfileName}
           >
-            {t.profile}
+            {profile.name?.trim()?.split(/\s+/)[0] || t.profile}
           </Text>
         </Pressable>
       </View>
@@ -1752,7 +1730,6 @@ const styles = StyleSheet.create({
 
   headerActions: {
     alignItems: 'flex-end',
-    gap: 10,
   },
 
   eyebrow: {
@@ -1828,28 +1805,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    overflow: 'hidden',
-    backgroundColor: '#DDEDE3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#CFE1D5',
-  },
-
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  avatarText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1F7A4C',
-  },
 
   availabilityCard: {
     marginTop: 20,
@@ -2310,12 +2265,43 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+
+  navProfileImageWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    overflow: 'hidden',
+    backgroundColor: '#E7EEE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  navProfileImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  navProfileInitials: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1F7A4C',
+  },
+
+  navProfileName: {
+    marginTop: 3,
+    maxWidth: 58,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#1F7A4C',
+    textAlign: 'center',
+  },
+
   bottomNav: {
     position: 'absolute',
     left: 12,
     right: 12,
     bottom: 9,
-    paddingTop: 8,
+    paddingTop: 6,
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,

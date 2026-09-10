@@ -11,6 +11,17 @@ import {
   useRouter,
 } from 'expo-router';
 
+import {
+  getAuth,
+} from '@react-native-firebase/auth';
+
+import {
+  collection,
+  doc,
+  getDoc,
+  getFirestore,
+} from '@react-native-firebase/firestore';
+
 import { requestPostAuthPermissions } from '../../services/permissions/permissionService';
 
 type AuthRole = 'user' | 'maid';
@@ -26,24 +37,99 @@ export default function PostAuthPermissionScreen() {
   const [isLoading, setIsLoading] =
     useState(false);
 
+  const [errorMessage, setErrorMessage] =
+    useState('');
+
   const handleContinue = async () => {
+    if (isLoading) return;
+
     try {
       setIsLoading(true);
+      setErrorMessage('');
 
-      await requestPostAuthPermissions();
+      /*
+       * Get currently authenticated Firebase user.
+       */
+      const currentUser =
+        getAuth().currentUser;
 
-      if (role === 'maid') {
-        router.replace(
-          '/maid/onboarding',
+      if (!currentUser) {
+        setErrorMessage(
+          'Your session has expired. Please verify your phone number again.',
         );
         return;
       }
 
+      /*
+       * Ask for notification/location permissions.
+       */
+      await requestPostAuthPermissions();
+
+      const uid = currentUser.uid;
+      const db = getFirestore();
+
+      /*
+       * Build references using Firebase modular API.
+       */
+      const customerRef = doc(
+        collection(db, 'users'),
+        uid,
+      );
+
+      const maidRef = doc(
+        collection(db, 'maids'),
+        uid,
+      );
+
+      /*
+       * Check whether a customer or maid profile
+       * already exists for this Firebase UID.
+       */
+      const [
+        customerSnapshot,
+        maidSnapshot,
+      ] = await Promise.all([
+        getDoc(customerRef),
+        getDoc(maidRef),
+      ]);
+
+      /*
+       * Existing Customer
+       */
+      if (customerSnapshot.exists()) {
+        router.replace('/customer');
+        return;
+      }
+
+      /*
+       * Existing Maid
+       */
+      if (maidSnapshot.exists()) {
+        router.replace('/maid');
+        return;
+      }
+
+      /*
+       * No profile exists.
+       * This is a new account.
+       */
+      if (role === 'maid') {
+        router.replace('/maid/onboarding');
+        return;
+      }
+
+      /*
+       * Default new-user flow = Customer.
+       */
       router.replace('/auth/profile');
     } catch (error) {
       console.error(
-        '[Permissions] Permission request failed:',
+        '[Permissions] Permission/navigation failed:',
         error,
+      );
+
+      setErrorMessage(
+        'Something went wrong. Please try again.',
       );
     } finally {
       setIsLoading(false);
@@ -105,15 +191,21 @@ export default function PostAuthPermissionScreen() {
             </Text>
           </View>
         </View>
+
+        {errorMessage ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <Pressable
         style={({ pressed }) => [
           styles.button,
-          pressed &&
-            styles.buttonPressed,
-          isLoading &&
-            styles.buttonDisabled,
+          pressed && styles.buttonPressed,
+          isLoading && styles.buttonDisabled,
         ]}
         onPress={handleContinue}
         disabled={isLoading}
@@ -198,6 +290,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: '#777C78',
+  },
+
+  errorCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: '#FFF2F0',
+    borderWidth: 1,
+    borderColor: '#F3C9C3',
+  },
+
+  errorText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#B42318',
+    fontWeight: '600',
   },
 
   button: {

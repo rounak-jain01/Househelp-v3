@@ -150,7 +150,7 @@ export default function CustomerProfileScreen() {
             paddingTop:
               insets.top + 12,
             paddingBottom:
-              insets.bottom + 30,
+              insets.bottom + 105,
           },
         ]}
       >
@@ -415,6 +415,47 @@ export default function CustomerProfileScreen() {
           HomeHelp
         </Text>
       </ScrollView>
+
+      <View
+        style={[
+          styles.bottomNav,
+          { paddingBottom: Math.max(insets.bottom, 10) },
+        ]}
+      >
+        <Pressable
+          style={styles.navItem}
+          onPress={() => router.replace('/customer')}
+        >
+          <Text style={styles.navIcon}>⌂</Text>
+          <Text style={styles.navLabel}>Home</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.navItem}
+          onPress={() => router.replace('/customer/bookings')}
+        >
+          <Text style={styles.navIcon}>▣</Text>
+          <Text style={styles.navLabel}>Bookings</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem}>
+          <View style={styles.navProfileImageWrap}>
+            {photoUrl ? (
+              <Image
+                source={{ uri: photoUrl }}
+                style={styles.navProfileImage}
+              />
+            ) : (
+              <Text style={styles.navProfileInitials}>
+                {getInitial()}
+              </Text>
+            )}
+          </View>
+          <Text numberOfLines={1} style={styles.navProfileName}>
+            {name.split(/\s+/)[0] || 'Profile'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -745,6 +786,75 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#B42318',
+  },
+
+
+  bottomNav: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 9,
+    minHeight: 80,
+    paddingTop: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E1E6E2',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+
+  navItem: {
+    minWidth: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  navIcon: {
+    fontSize: 19,
+    color: '#858A86',
+  },
+
+  navLabel: {
+    marginTop: 3,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#858A86',
+  },
+
+  navProfileImageWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    overflow: 'hidden',
+    backgroundColor: '#E7EEE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  navProfileImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  navProfileInitials: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1A211B',
+  },
+
+  navProfileName: {
+    marginTop: 3,
+    maxWidth: 58,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#1F7A4C',
+    textAlign: 'center',
   },
 
   versionText: {

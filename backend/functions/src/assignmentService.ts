@@ -658,33 +658,151 @@ async function hasExistingConflict(
 }
 
 /* -----------------------------------------
- * GOOGLE ROUTES API
+ * GOOGLE ROUTES API + FALLBACK
  * ----------------------------------------- */
+
+function isValidCoordinate(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= -90 &&
+    value <= 90
+  );
+}
+
+function isValidLongitude(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= -180 &&
+    value <= 180
+  );
+}
+
+function isValidCoordinates(
+  value: unknown,
+): value is Coordinates {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const coordinates = value as Partial<Coordinates>;
+
+  return (
+    isValidCoordinate(coordinates.latitude) &&
+    isValidLongitude(coordinates.longitude)
+  );
+}
+
+/**
+ * Straight-line distance fallback.
+ *
+ * This is used only when Google Routes cannot return a route.
+ * It guarantees that a valid pair of coordinates still produces
+ * a useful distance instead of "Distance unavailable".
+ */
+function calculateFallbackDistanceMeters(
+  origin: Coordinates,
+  destination: Coordinates,
+): number {
+  const earthRadiusMeters = 6_371_000;
+
+  const toRadians = (degrees: number) =>
+    (degrees * Math.PI) / 180;
+
+  const latitudeDifference = toRadians(
+    destination.latitude - origin.latitude,
+  );
+
+  const longitudeDifference = toRadians(
+    destination.longitude - origin.longitude,
+  );
+
+  const originLatitude = toRadians(
+    origin.latitude,
+  );
+
+  const destinationLatitude = toRadians(
+    destination.latitude,
+  );
+
+  const a =
+    Math.sin(latitudeDifference / 2) ** 2 +
+    Math.cos(originLatitude) *
+      Math.cos(destinationLatitude) *
+      Math.sin(longitudeDifference / 2) ** 2;
+
+  const c =
+    2 * Math.atan2(
+      Math.sqrt(a),
+      Math.sqrt(1 - a),
+    );
+
+  return earthRadiusMeters * c;
+}
+
+/**
+ * Approximate city-driving ETA used only as a fallback.
+ *
+ * Average fallback speed is 18 km/h. This is intentionally
+ * labelled internally as an estimate and is never preferred
+ * over Google's traffic-aware ETA.
+ */
+function calculateFallbackTravelSeconds(
+  distanceMeters: number,
+): number {
+  const fallbackMetersPerSecond =
+    18_000 / 3_600;
+
+  return Math.max(
+    30,
+    Math.round(
+      distanceMeters /
+        fallbackMetersPerSecond,
+    ),
+  );
+}
 
 async function calculateDrivingDistance(
   origin: Coordinates,
   destination: Coordinates,
 ): Promise<{
-  distanceMeters:
-    | number
-    | null;
-
-  estimatedTravelSeconds:
-    | number
-    | null;
+  distanceMeters: number | null;
+  estimatedTravelSeconds: number | null;
+  source: 'google' | 'fallback' | 'none';
 }> {
+  if (
+    !isValidCoordinates(origin) ||
+    !isValidCoordinates(destination)
+  ) {
+    return {
+      distanceMeters: null,
+      estimatedTravelSeconds: null,
+      source: 'none',
+    };
+  }
+
   const key =
-    GOOGLE_MAPS_API_KEY.value();
+    GOOGLE_MAPS_API_KEY.value()?.trim();
 
   if (!key) {
     console.error(
-      '[Assignment] GOOGLE_MAPS_API_KEY is empty.',
+      '[Assignment] GOOGLE_MAPS_API_KEY is empty. Using fallback distance.',
     );
 
+    const distanceMeters =
+      calculateFallbackDistanceMeters(
+        origin,
+        destination,
+      );
+
     return {
-      distanceMeters: null,
+      distanceMeters,
       estimatedTravelSeconds:
-        null,
+        calculateFallbackTravelSeconds(
+          distanceMeters,
+        ),
+      source: 'fallback',
     };
   }
 
@@ -694,60 +812,41 @@ async function calculateDrivingDistance(
         'https://routes.googleapis.com/directions/v2:computeRoutes',
         {
           method: 'POST',
-
           headers: {
             'Content-Type':
               'application/json',
-
-            'X-Goog-Api-Key':
-              key,
-
-            /*
-             * Only request the fields we need.
-             */
+            'X-Goog-Api-Key': key,
             'X-Goog-FieldMask':
               'routes.distanceMeters,routes.duration',
           },
-
           body: JSON.stringify({
             origin: {
               location: {
                 latLng: {
                   latitude:
                     origin.latitude,
-
                   longitude:
                     origin.longitude,
                 },
               },
             },
-
             destination: {
               location: {
                 latLng: {
                   latitude:
                     destination.latitude,
-
                   longitude:
                     destination.longitude,
                 },
               },
             },
-
-            travelMode:
-              'DRIVE',
-
+            travelMode: 'DRIVE',
             routingPreference:
               'TRAFFIC_AWARE',
-
             computeAlternativeRoutes:
               false,
-
-            languageCode:
-              'en-IN',
-
-            units:
-              'METRIC',
+            languageCode: 'en-IN',
+            units: 'METRIC',
           }),
         },
       );
@@ -757,91 +856,85 @@ async function calculateDrivingDistance(
         await response.text();
 
       console.error(
-        '[Assignment] Google Routes API error:',
+        '[Assignment] Google Routes API error. Using fallback distance.',
         {
           status:
             response.status,
-
           statusText:
             response.statusText,
-
-          body:
-            errorBody,
+          body: errorBody,
         },
       );
+    } else {
+      const body =
+        (await response.json()) as {
+          routes?: Array<{
+            distanceMeters?: number;
+            duration?: string;
+          }>;
+        };
 
-      return {
-        distanceMeters:
-          null,
+      const route =
+        body.routes?.[0];
 
-        estimatedTravelSeconds:
-          null,
-      };
-    }
+      const seconds =
+        route?.duration
+          ? Number.parseFloat(
+              route.duration.replace(
+                /s$/,
+                '',
+              ),
+            )
+          : null;
 
-    const body =
-      (await response.json()) as {
-        routes?: Array<{
-          distanceMeters?: number;
-          duration?: string;
-        }>;
-      };
-
-    const route =
-      body.routes?.[0];
-
-    if (!route) {
-      console.error(
-        '[Assignment] Google Routes API returned no route.',
-      );
-
-      return {
-        distanceMeters:
-          null,
-
-        estimatedTravelSeconds:
-          null,
-      };
-    }
-
-    const seconds =
-      route.duration
-        ? Number.parseFloat(
-            route.duration.replace(
-              /s$/,
-              '',
-            ),
-          )
-        : null;
-
-    return {
-      distanceMeters:
+      if (
+        route &&
         typeof route.distanceMeters ===
-        'number'
-          ? route.distanceMeters
-          : null,
-
-      estimatedTravelSeconds:
+          'number' &&
+        Number.isFinite(
+          route.distanceMeters,
+        ) &&
         Number.isFinite(
           seconds ?? NaN,
         )
-          ? seconds
-          : null,
-    };
+      ) {
+        return {
+          distanceMeters:
+            route.distanceMeters,
+          estimatedTravelSeconds:
+            seconds,
+          source: 'google',
+        };
+      }
+
+      console.error(
+        '[Assignment] Google Routes API returned an invalid route. Using fallback distance.',
+        {
+          route,
+        },
+      );
+    }
   } catch (error) {
     console.error(
-      '[Assignment] Distance calculation failed:',
+      '[Assignment] Google Routes API request failed. Using fallback distance:',
       error,
     );
-
-    return {
-      distanceMeters:
-        null,
-
-      estimatedTravelSeconds:
-        null,
-    };
   }
+
+  const distanceMeters =
+    calculateFallbackDistanceMeters(
+      origin,
+      destination,
+    );
+
+  return {
+    distanceMeters,
+    estimatedTravelSeconds:
+      calculateFallbackTravelSeconds(
+        distanceMeters,
+      ),
+    source: 'fallback',
+  };
 }
 
 /* -----------------------------------------
@@ -857,29 +950,32 @@ function buildRequestTexts(
     | null,
 ) {
   const distanceText =
-    typeof distanceMeters ===
-    'number'
-      ? distanceMeters <
-        1000
-        ? `${Math.round(
-            distanceMeters,
+    typeof distanceMeters === 'number' &&
+    Number.isFinite(distanceMeters)
+      ? distanceMeters < 1000
+        ? `${Math.max(
+            0,
+            Math.round(distanceMeters),
           )} m`
         : `${(
-            distanceMeters /
-            1000
+            distanceMeters / 1000
           ).toFixed(1)} km`
       : 'Distance unavailable';
 
   const etaText =
     typeof estimatedTravelSeconds ===
-    'number'
-      ? `${Math.max(
-          1,
-          Math.round(
-            estimatedTravelSeconds /
-              60,
-          ),
-        )} min`
+      'number' &&
+    Number.isFinite(
+      estimatedTravelSeconds,
+    )
+      ? estimatedTravelSeconds < 60
+        ? 'Less than 1 min'
+        : `${Math.max(
+            1,
+            Math.round(
+              estimatedTravelSeconds / 60,
+            ),
+          )} min`
       : 'ETA unavailable';
 
   return {
@@ -887,6 +983,7 @@ function buildRequestTexts(
     etaText,
   };
 }
+
 
 /* -----------------------------------------
  * PUSH TO MAID

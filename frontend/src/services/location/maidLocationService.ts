@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+
 import {
   doc,
   getFirestore,
@@ -15,20 +16,41 @@ export type MaidCurrentLocation = {
   updatedAt?: unknown;
 };
 
-export async function requestMaidLocationPermission(): Promise<boolean> {
-  const {
-    status: existingStatus,
-  } = await Location.getForegroundPermissionsAsync();
+const LOCATION_OPTIONS: Location.LocationOptions = {
+  accuracy: Location.Accuracy.Balanced,
+  timeInterval: 60_000,
+  distanceInterval: 100,
+};
 
-  if (existingStatus === 'granted') {
+function normalizeError(
+  error: unknown,
+  fallbackMessage: string,
+): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(fallbackMessage);
+}
+
+export async function requestMaidLocationPermission(): Promise<boolean> {
+  const existingPermission =
+    await Location.getForegroundPermissionsAsync();
+
+  if (
+    existingPermission.status ===
+    'granted'
+  ) {
     return true;
   }
 
-  const {
-    status,
-  } = await Location.requestForegroundPermissionsAsync();
+  const requestedPermission =
+    await Location.requestForegroundPermissionsAsync();
 
-  return status === 'granted';
+  return (
+    requestedPermission.status ===
+    'granted'
+  );
 }
 
 export async function getMaidCurrentLocation(): Promise<MaidCurrentLocation> {
@@ -41,10 +63,12 @@ export async function getMaidCurrentLocation(): Promise<MaidCurrentLocation> {
     );
   }
 
+  /*
+   * Use a fresh GPS reading.
+   */
   const position =
     await Location.getCurrentPositionAsync({
-      accuracy:
-        Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.Balanced,
     });
 
   const {
@@ -67,9 +91,18 @@ export async function getMaidCurrentLocation(): Promise<MaidCurrentLocation> {
   return {
     latitude,
     longitude,
-    accuracy,
-    heading,
-    speed,
+    accuracy:
+      Number.isFinite(accuracy ?? NaN)
+        ? accuracy
+        : null,
+    heading:
+      Number.isFinite(heading ?? NaN)
+        ? heading
+        : null,
+    speed:
+      Number.isFinite(speed ?? NaN)
+        ? speed
+        : null,
   };
 }
 
@@ -131,6 +164,15 @@ export async function refreshMaidCurrentLocation(
   return location;
 }
 
+/**
+ * Starts location tracking for the maid.
+ *
+ * IMPORTANT:
+ * We intentionally fetch and save one location immediately
+ * before starting the watcher. This prevents a race condition
+ * where a booking is created before watchPositionAsync emits
+ * its first location update.
+ */
 export async function startMaidLocationTracking(
   maidId: string,
   onLocation?: (
@@ -140,6 +182,17 @@ export async function startMaidLocationTracking(
     error: Error,
   ) => void,
 ): Promise<() => void> {
+  if (!maidId) {
+    const error =
+      new Error(
+        'Maid information is missing.',
+      );
+
+    onError?.(error);
+
+    return () => undefined;
+  }
+
   const hasPermission =
     await requestMaidLocationPermission();
 
@@ -154,23 +207,76 @@ export async function startMaidLocationTracking(
     return () => undefined;
   }
 
+  let isStopped = false;
+  let watcher:
+    | Location.LocationSubscription
+    | null = null;
+
+  /*
+   * STEP 1:
+   * Immediately get the current position and save it.
+   */
   try {
-    const subscription =
+    const initialLocation =
+      await getMaidCurrentLocation();
+
+    if (!isStopped) {
+      await updateMaidCurrentLocation(
+        maidId,
+        initialLocation,
+      );
+
+      onLocation?.(
+        initialLocation,
+      );
+    }
+  } catch (error) {
+    const normalizedError =
+      normalizeError(
+        error,
+        'Unable to get your current location.',
+      );
+
+    console.error(
+      '[MaidLocation] Initial location update failed:',
+      normalizedError,
+    );
+
+    onError?.(
+      normalizedError,
+    );
+
+    /*
+     * Do not immediately stop here.
+     * The watcher can still recover and get a location.
+     */
+  }
+
+  if (isStopped) {
+    return () => undefined;
+  }
+
+  /*
+   * STEP 2:
+   * Continue watching for meaningful movement/time changes.
+   */
+  try {
+    watcher =
       await Location.watchPositionAsync(
-        {
-          accuracy:
-            Location.Accuracy.Balanced,
-          timeInterval: 60_000,
-          distanceInterval: 100,
-        },
+        LOCATION_OPTIONS,
         async (position) => {
+          if (isStopped) {
+            return;
+          }
+
           const {
             latitude,
             longitude,
             accuracy,
             heading,
             speed,
-          } = position.coords;
+          } =
+            position.coords;
 
           if (
             !Number.isFinite(
@@ -187,9 +293,24 @@ export async function startMaidLocationTracking(
             {
               latitude,
               longitude,
-              accuracy,
-              heading,
-              speed,
+              accuracy:
+                Number.isFinite(
+                  accuracy ?? NaN,
+                )
+                  ? accuracy
+                  : null,
+              heading:
+                Number.isFinite(
+                  heading ?? NaN,
+                )
+                  ? heading
+                  : null,
+              speed:
+                Number.isFinite(
+                  speed ?? NaN,
+                )
+                  ? speed
+                  : null,
             };
 
           try {
@@ -198,16 +319,26 @@ export async function startMaidLocationTracking(
               location,
             );
 
-            onLocation?.(
-              location,
-            );
+            if (!isStopped) {
+              onLocation?.(
+                location,
+              );
+            }
           } catch (error) {
+            if (isStopped) {
+              return;
+            }
+
             const normalizedError =
-              error instanceof Error
-                ? error
-                : new Error(
-                    'Unable to update current location.',
-                  );
+              normalizeError(
+                error,
+                'Unable to update current location.',
+              );
+
+            console.error(
+              '[MaidLocation] Location update failed:',
+              normalizedError,
+            );
 
             onError?.(
               normalizedError,
@@ -215,22 +346,32 @@ export async function startMaidLocationTracking(
           }
         },
       );
-
-    return () => {
-      subscription.remove();
-    };
   } catch (error) {
     const normalizedError =
-      error instanceof Error
-        ? error
-        : new Error(
-            'Unable to start location tracking.',
-          );
+      normalizeError(
+        error,
+        'Unable to start location tracking.',
+      );
+
+    console.error(
+      '[MaidLocation] Tracking start failed:',
+      normalizedError,
+    );
 
     onError?.(
       normalizedError,
     );
-
-    return () => undefined;
   }
+
+  /*
+   * Unified cleanup function.
+   */
+  return () => {
+    isStopped = true;
+
+    if (watcher) {
+      watcher.remove();
+      watcher = null;
+    }
+  };
 }

@@ -1,4 +1,8 @@
-import { getAuth } from '@react-native-firebase/auth';
+import {
+  getAuth,
+  onAuthStateChanged,
+} from '@react-native-firebase/auth';
+
 import {
   collection,
   doc,
@@ -52,135 +56,298 @@ export type CustomerBooking = {
   cancelledAt?: any;
 };
 
-function getCurrentUserId(): string {
-  const user = getAuth().currentUser;
-
-  if (!user) {
-    throw new Error('No authenticated user found.');
+/**
+ * Safely normalize unknown errors.
+ */
+function normalizeError(
+  error: unknown,
+  fallbackMessage: string,
+): Error {
+  if (error instanceof Error) {
+    return error;
   }
 
-  return user.uid;
+  return new Error(fallbackMessage);
 }
 
+/**
+ * Subscribe to the authenticated customer's profile.
+ *
+ * The Firestore listener is attached only while a Firebase
+ * Auth user exists. It is automatically removed as soon
+ * as the user signs out.
+ */
 export function subscribeToCustomerProfile(
-  onProfile: (profile: CustomerProfile | null) => void,
+  onProfile: (
+    profile: CustomerProfile | null,
+  ) => void,
   onError?: (error: Error) => void,
 ) {
-  try {
-    const userId = getCurrentUserId();
-    const firestore = getFirestore();
+  const auth = getAuth();
+  const firestore = getFirestore();
 
-    const userRef = doc(
-      firestore,
-      'users',
-      userId,
-    );
+  let firestoreUnsubscribe:
+    | (() => void)
+    | null = null;
 
-    return onSnapshot(
-      userRef,
-      (snapshot) => {
-        if (!snapshot.exists()) {
+  let isDisposed = false;
+
+  const stopFirestoreListener = () => {
+    if (firestoreUnsubscribe) {
+      firestoreUnsubscribe();
+      firestoreUnsubscribe = null;
+    }
+  };
+
+  const authUnsubscribe =
+    onAuthStateChanged(
+      auth,
+      (user) => {
+        if (isDisposed) {
+          return;
+        }
+
+        /*
+         * User has signed out.
+         * Stop Firestore listener immediately.
+         */
+        if (!user) {
+          stopFirestoreListener();
           onProfile(null);
           return;
         }
 
-        onProfile({
-          userId: snapshot.id,
-          ...snapshot.data(),
-        } as CustomerProfile);
-      },
-      (error) => {
-        console.error(
-          '[CustomerService] Profile listener failed:',
-          error,
+        /*
+         * Prevent duplicate listeners if auth
+         * changes from one account to another.
+         */
+        stopFirestoreListener();
+
+        const userRef = doc(
+          firestore,
+          'users',
+          user.uid,
         );
 
-        onError?.(error);
+        firestoreUnsubscribe =
+          onSnapshot(
+            userRef,
+            (snapshot) => {
+              if (isDisposed) {
+                return;
+              }
+
+              if (!snapshot.exists()) {
+                onProfile(null);
+                return;
+              }
+
+              onProfile({
+                userId: snapshot.id,
+                ...snapshot.data(),
+              } as CustomerProfile);
+            },
+            (error) => {
+              /*
+               * Firebase may deliver a final error while
+               * logout is already in progress. Ignore it
+               * when there is no authenticated user.
+               */
+              if (
+                isDisposed ||
+                !getAuth().currentUser
+              ) {
+                return;
+              }
+
+              const normalizedError =
+                normalizeError(
+                  error,
+                  'Unable to load customer profile.',
+                );
+
+              console.error(
+                '[CustomerService] Profile listener failed:',
+                normalizedError,
+              );
+
+              onError?.(
+                normalizedError,
+              );
+            },
+          );
       },
     );
-  } catch (error) {
-    const normalizedError =
-      error instanceof Error
-        ? error
-        : new Error('Unable to load customer profile.');
 
-    onError?.(normalizedError);
+  return () => {
+    isDisposed = true;
 
-    return () => {};
-  }
+    stopFirestoreListener();
+    authUnsubscribe();
+  };
 }
 
+/**
+ * Subscribe to the customer's currently active booking.
+ *
+ * Automatically stops the Firestore listener after logout.
+ */
 export function subscribeToActiveBooking(
-  onBooking: (booking: CustomerBooking | null) => void,
+  onBooking: (
+    booking: CustomerBooking | null,
+  ) => void,
   onError?: (error: Error) => void,
 ) {
-  try {
-    const userId = getCurrentUserId();
-    const firestore = getFirestore();
+  const auth = getAuth();
+  const firestore = getFirestore();
 
-    const bookingsRef = collection(
-      firestore,
-      'bookings',
-    );
+  let firestoreUnsubscribe:
+    | (() => void)
+    | null = null;
 
-    const activeStatuses = [
-      'pending',
-      'assigned',
-      'confirmed',
-      'in_progress',
-    ];
+  let isDisposed = false;
 
-    const bookingsQuery = query(
-      bookingsRef,
-      where('customerId', '==', userId),
-      where('status', 'in', activeStatuses),
-    );
+  const stopFirestoreListener = () => {
+    if (firestoreUnsubscribe) {
+      firestoreUnsubscribe();
+      firestoreUnsubscribe = null;
+    }
+  };
 
-    return onSnapshot(
-      bookingsQuery,
-      (snapshot) => {
-        if (snapshot.empty) {
+  const authUnsubscribe =
+    onAuthStateChanged(
+      auth,
+      (user) => {
+        if (isDisposed) {
+          return;
+        }
+
+        /*
+         * Signed out → remove booking listener.
+         */
+        if (!user) {
+          stopFirestoreListener();
           onBooking(null);
           return;
         }
 
-        const bookings = snapshot.docs.map(
-          (bookingDocument) =>
-            ({
-              bookingId: bookingDocument.id,
-              ...bookingDocument.data(),
-            }) as CustomerBooking,
-        );
+        /*
+         * Remove old listener before creating
+         * a new one.
+         */
+        stopFirestoreListener();
 
-        bookings.sort((a, b) => {
-          const aTime =
-            a.scheduledDateTime?.toMillis?.() ?? 0;
+        const bookingsRef =
+          collection(
+            firestore,
+            'bookings',
+          );
 
-          const bTime =
-            b.scheduledDateTime?.toMillis?.() ?? 0;
+        const activeStatuses = [
+          'pending',
+          'assigned',
+          'confirmed',
+          'in_progress',
+        ];
 
-          return aTime - bTime;
-        });
+        const bookingsQuery =
+          query(
+            bookingsRef,
+            where(
+              'customerId',
+              '==',
+              user.uid,
+            ),
+            where(
+              'status',
+              'in',
+              activeStatuses,
+            ),
+          );
 
-        onBooking(bookings[0] ?? null);
-      },
-      (error) => {
-        console.error(
-          '[CustomerService] Booking listener failed:',
-          error,
-        );
+        firestoreUnsubscribe =
+          onSnapshot(
+            bookingsQuery,
+            (snapshot) => {
+              if (isDisposed) {
+                return;
+              }
 
-        onError?.(error);
+              if (snapshot.empty) {
+                onBooking(null);
+                return;
+              }
+
+              const bookings =
+                snapshot.docs.map(
+                  (
+                    bookingDocument,
+                  ) =>
+                    ({
+                      bookingId:
+                        bookingDocument.id,
+                      ...bookingDocument.data(),
+                    }) as CustomerBooking,
+                );
+
+              bookings.sort(
+                (a, b) => {
+                  const aTime =
+                    a.scheduledDateTime
+                      ?.toMillis?.() ??
+                    0;
+
+                  const bTime =
+                    b.scheduledDateTime
+                      ?.toMillis?.() ??
+                    0;
+
+                  return (
+                    aTime - bTime
+                  );
+                },
+              );
+
+              onBooking(
+                bookings[0] ??
+                  null,
+              );
+            },
+            (error) => {
+              /*
+               * Ignore stale Firestore errors that arrive
+               * after the user has already signed out.
+               */
+              if (
+                isDisposed ||
+                !getAuth().currentUser
+              ) {
+                return;
+              }
+
+              const normalizedError =
+                normalizeError(
+                  error,
+                  'Unable to load active booking.',
+                );
+
+              console.error(
+                '[CustomerService] Booking listener failed:',
+                normalizedError,
+              );
+
+              onError?.(
+                normalizedError,
+              );
+            },
+          );
       },
     );
-  } catch (error) {
-    const normalizedError =
-      error instanceof Error
-        ? error
-        : new Error('Unable to load active booking.');
 
-    onError?.(normalizedError);
+  return () => {
+    isDisposed = true;
 
-    return () => {};
-  }
+    stopFirestoreListener();
+    authUnsubscribe();
+  };
 }

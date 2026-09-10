@@ -164,28 +164,6 @@ export default function CustomerHomeScreen() {
             </Text>
           </View>
 
-          <Pressable
-            onPress={() =>
-              router.push('/customer/profile')
-            }
-            style={({ pressed }) => [
-              styles.profileButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            {profile?.photoUrl ? (
-              <Image
-                source={{
-                  uri: profile.photoUrl,
-                }}
-                style={styles.profileImage}
-              />
-            ) : (
-              <Text style={styles.profileInitials}>
-                {initials}
-              </Text>
-            )}
-          </Pressable>
         </View>
 
         {/* Location */}
@@ -404,9 +382,9 @@ export default function CustomerHomeScreen() {
           }
         />
 
-        <BottomNavItem
-          icon="○"
-          label="Profile"
+        <BottomNavProfileItem
+          name={profile?.name}
+          photoUrl={profile?.photoUrl}
           onPress={() =>
             router.push('/customer/profile')
           }
@@ -569,6 +547,58 @@ function BottomNavItem({
   );
 }
 
+
+function BottomNavProfileItem({
+  name,
+  photoUrl,
+  onPress,
+}: {
+  name?: string;
+  photoUrl?: string | null;
+  onPress: () => void;
+}) {
+  const displayName =
+    name?.trim()?.split(/\s+/)[0] || 'Profile';
+
+  const initials =
+    name?.trim()
+      ?.split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'U';
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.navItem,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={styles.navProfileImageWrap}>
+        {photoUrl ? (
+          <Image
+            source={{ uri: photoUrl }}
+            style={styles.navProfileImage}
+          />
+        ) : (
+          <Text style={styles.navProfileInitials}>
+            {initials}
+          </Text>
+        )}
+      </View>
+
+      <Text
+        numberOfLines={1}
+        style={styles.navProfileName}
+      >
+        {displayName}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -589,7 +619,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
     marginBottom: 20,
   },
 
@@ -621,29 +650,9 @@ const styles = StyleSheet.create({
     color: '#747B75',
   },
 
-  profileButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 17,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E7EEE7',
-  },
-
-  profileImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  profileInitials: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1A211B',
-  },
 
   locationCard: {
-    minHeight: 72,
+    minHeight: 80,
     paddingHorizontal: 13,
     paddingVertical: 12,
     marginBottom: 16,
@@ -990,12 +999,43 @@ const styles = StyleSheet.create({
     color: '#858C85',
   },
 
+
+  navProfileImageWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    overflow: 'hidden',
+    backgroundColor: '#E7EEE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  navProfileImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  navProfileInitials: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1A211B',
+  },
+
+  navProfileName: {
+    marginTop: 3,
+    maxWidth: 58,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#858A86',
+    textAlign: 'center',
+  },
+
   bottomNav: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    minHeight: 72,
+    minHeight: 80,
     paddingHorizontal: 34,
     paddingTop: 10,
     borderTopWidth: 1,

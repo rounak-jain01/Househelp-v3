@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { sendOtp } from '../../services/firebase/phoneAuth';
+
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,13 +11,27 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+
+import {
+  router,
+  useLocalSearchParams,
+} from "expo-router";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { sendOtp } from "../../services/firebase/phoneAuth";
+
+// import { sendOtp } from "../../src/services/firebase/phoneAuth";
 
 export default function PhoneAuthScreen() {
   const insets = useSafeAreaInsets();
-  const { role } = useLocalSearchParams<{ role: "user" | "maid" }>();
+
+  const { role } =
+    useLocalSearchParams<{
+      role?: "user" | "maid";
+    }>();
+
   const isHelp = role === "maid";
+
   const screenContent = isHelp
     ? {
         title: "Let's get you started",
@@ -29,38 +44,135 @@ export default function PhoneAuthScreen() {
           "Enter your mobile number to book trusted help for your home.",
       };
 
-  const [phoneNumber, setPhoneNumber] = useState("");
+  const [phoneNumber, setPhoneNumber] =
+    useState("");
 
-  const isValidPhone = phoneNumber.length === 10;
+  const [isLoading, setIsLoading] =
+    useState(false);
 
-  const [isLoading, setIsLoading] = useState(false);  
+  const [error, setError] =
+    useState("");
+
+  const isValidPhone =
+    phoneNumber.length === 10;
+
+  const getFirebaseErrorMessage = (
+    firebaseError: unknown,
+  ): string => {
+    const errorCode =
+      typeof firebaseError === "object" &&
+      firebaseError !== null &&
+      "code" in firebaseError
+        ? String(
+            (
+              firebaseError as {
+                code?: unknown;
+              }
+            ).code ?? "",
+          )
+        : "";
+
+    switch (errorCode) {
+      case "auth/invalid-phone-number":
+        return "Please enter a valid 10-digit mobile number.";
+
+      case "auth/too-many-requests":
+        return "Too many attempts. Please wait a while and try again.";
+
+      case "auth/quota-exceeded":
+        return "OTP service limit reached. Please try again later.";
+
+      case "auth/network-request-failed":
+        return "Network error. Please check your internet connection.";
+
+      case "auth/app-not-authorized":
+        return "This app is not authorized for phone verification.";
+
+      case "auth/operation-not-allowed":
+        return "Phone authentication is currently unavailable.";
+
+      case "auth/user-disabled":
+        return "This account has been disabled.";
+
+      default:
+        return "Unable to send OTP. Please try again.";
+    }
+  };
+
+  const handlePhoneChange = (
+    value: string,
+  ) => {
+    const cleanedValue = value
+      .replace(/[^0-9]/g, "")
+      .slice(0, 10);
+
+    setPhoneNumber(cleanedValue);
+
+    if (error) {
+      setError("");
+    }
+  };
 
   const handleContinue = async () => {
-  if (!phoneNumber.trim()) {
-    return;
-  }
+    if (isLoading) {
+      return;
+    }
 
-  try {
-    setIsLoading(true);
+    const cleanPhone =
+      phoneNumber.trim();
 
-    const formattedPhone = `+91${phoneNumber.trim()}`;
+    if (!cleanPhone) {
+      setError(
+        "Please enter your mobile number.",
+      );
+      return;
+    }
 
-    await sendOtp(formattedPhone);
+    if (!/^\d{10}$/.test(cleanPhone)) {
+      setError(
+        "Please enter a valid 10-digit mobile number.",
+      );
+      return;
+    }
 
-    router.push({
-      pathname: '/auth/otp',
-      params: {
-        phone: formattedPhone,
-        role,
-      },
-    });
-  } catch (error) {
-    console.error('OTP send failed:', error);
-    // Abhi UI error handling next step mein polish karenge.
-  } finally {
-    setIsLoading(false);
-  }
-};
+    if (!role) {
+      setError(
+        "Unable to identify your account type. Please go back and select your role again.",
+      );
+      return;
+    }
+
+    try {
+      setError("");
+      setIsLoading(true);
+
+      const formattedPhone =
+        `+91${cleanPhone}`;
+
+      await sendOtp(formattedPhone);
+
+      router.push({
+        pathname: "/auth/otp",
+        params: {
+          phone: formattedPhone,
+          role,
+        },
+      });
+    } catch (sendError) {
+      console.error(
+        "[PhoneAuth] OTP send failed:",
+        sendError,
+      );
+
+      setError(
+        getFirebaseErrorMessage(
+          sendError,
+        ),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <View
@@ -68,60 +180,105 @@ export default function PhoneAuthScreen() {
         styles.screen,
         {
           paddingTop: insets.top,
-          paddingBottom: Math.max(insets.bottom, 16),
+          paddingBottom: Math.max(
+            insets.bottom,
+            16,
+          ),
         },
       ]}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#F7F7F5" />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F7F7F5"
+      />
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={
+          Platform.OS === "ios"
+            ? "padding"
+            : "height"
+        }
       >
         <View style={styles.container}>
-          {/* Header */}
+          {/* HEADER */}
+
           <View style={styles.header}>
             <Pressable
               onPress={() => router.back()}
               style={styles.backButton}
               hitSlop={10}
+              disabled={isLoading}
             >
-              <Text style={styles.backIcon}>‹</Text>
+              <Text style={styles.backIcon}>
+                ‹
+              </Text>
             </Pressable>
 
-            <Text style={styles.headerTitle}>Phone number</Text>
+            <Text style={styles.headerTitle}>
+              Phone number
+            </Text>
 
-            <View style={styles.headerSpacer} />
+            <View
+              style={styles.headerSpacer}
+            />
           </View>
 
-          {/* Main Content */}
+          {/* MAIN CONTENT */}
+
           <View style={styles.content}>
-            <View style={styles.iconContainer}>
-              <Text style={styles.phoneIcon}>⌕</Text>
+            <View
+              style={styles.iconContainer}
+            >
+              <Text
+                style={styles.phoneIcon}
+              >
+                ⌕
+              </Text>
             </View>
 
-            <Text style={styles.title}>{screenContent.title}</Text>
+            <Text style={styles.title}>
+              {screenContent.title}
+            </Text>
 
-            <Text style={styles.subtitle}>{screenContent.subtitle}</Text>
+            <Text style={styles.subtitle}>
+              {screenContent.subtitle}
+            </Text>
 
-            {/* Phone Input */}
-            <View style={styles.inputSection}>
-              <Text style={styles.inputLabel}>MOBILE NUMBER</Text>
+            {/* PHONE INPUT */}
+
+            <View
+              style={styles.inputSection}
+            >
+              <Text
+                style={styles.inputLabel}
+              >
+                MOBILE NUMBER
+              </Text>
 
               <View
                 style={[
                   styles.inputContainer,
-                  phoneNumber.length > 0 && styles.inputFocused,
+                  phoneNumber.length > 0 &&
+                    styles.inputFocused,
+                  error &&
+                    styles.inputError,
                 ]}
               >
-                <Text style={styles.countryCode}>+91</Text>
+                <Text
+                  style={styles.countryCode}
+                >
+                  +91
+                </Text>
 
-                <View style={styles.divider} />
+                <View
+                  style={styles.divider}
+                />
 
                 <TextInput
                   value={phoneNumber}
-                  onChangeText={(value) =>
-                    setPhoneNumber(value.replace(/[^0-9]/g, "").slice(0, 10))
+                  onChangeText={
+                    handlePhoneChange
                   }
                   placeholder="Enter mobile number"
                   placeholderTextColor="#A1A3A0"
@@ -129,42 +286,113 @@ export default function PhoneAuthScreen() {
                   maxLength={10}
                   returnKeyType="done"
                   style={styles.input}
-                  onSubmitEditing={handleContinue}
+                  onSubmitEditing={
+                    handleContinue
+                  }
+                  editable={!isLoading}
                 />
               </View>
 
-              <Text style={styles.helperText}>
-                By continuing, you agree to receive an OTP on this number.
-              </Text>
-            </View>
-            {/* Continue */}
-<Pressable
-  disabled={!isValidPhone}
-  onPress={handleContinue}
-  style={({ pressed }) => [
-    styles.continueButton,
-    !isValidPhone && styles.disabledButton,
-    pressed && isValidPhone && styles.pressedButton,
-  ]}
->
-  <Text
-    style={[
-      styles.continueText,
-      !isValidPhone && styles.disabledText,
-    ]}
-  >
-    Continue
-  </Text>
+              {/* ERROR */}
 
-  <Text
-    style={[
-      styles.arrow,
-      !isValidPhone && styles.disabledText,
-    ]}
-  >
-    →
-  </Text>
-</Pressable>
+              {error ? (
+                <View
+                  style={styles.errorContainer}
+                >
+                  <View
+                    style={styles.errorIcon}
+                  >
+                    <Text
+                      style={
+                        styles.errorIconText
+                      }
+                    >
+                      !
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={styles.errorText}
+                  >
+                    {error}
+                  </Text>
+                </View>
+              ) : (
+                <Text
+                  style={styles.helperText}
+                >
+                  By continuing, you agree to
+                  receive an OTP on this number.
+                </Text>
+              )}
+            </View>
+
+            {/* BOTTOM BUTTON */}
+
+            <View
+              style={styles.bottomSection}
+            >
+              <Pressable
+                disabled={
+                  !isValidPhone ||
+                  isLoading
+                }
+                onPress={
+                  handleContinue
+                }
+                style={({
+                  pressed,
+                }) => [
+                  styles.continueButton,
+                  (!isValidPhone ||
+                    isLoading) &&
+                    styles.disabledButton,
+                  pressed &&
+                    isValidPhone &&
+                    !isLoading &&
+                    styles.pressedButton,
+                ]}
+              >
+                {isLoading ? (
+                  <>
+                    <ActivityIndicator
+                      size="small"
+                      color="#FFFFFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.loadingButtonText
+                      }
+                    >
+                      Sending OTP...
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text
+                      style={[
+                        styles.continueText,
+                        !isValidPhone &&
+                          styles.disabledText,
+                      ]}
+                    >
+                      Continue
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.arrow,
+                        !isValidPhone &&
+                          styles.disabledText,
+                      ]}
+                    >
+                      →
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -189,7 +417,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
 
-  /* Header */
+  /* HEADER */
 
   header: {
     height: 48,
@@ -227,7 +455,7 @@ const styles = StyleSheet.create({
     width: 42,
   },
 
-  /* Content */
+  /* CONTENT */
 
   content: {
     flex: 1,
@@ -247,7 +475,11 @@ const styles = StyleSheet.create({
   phoneIcon: {
     fontSize: 29,
     color: "#536257",
-    transform: [{ rotate: "-20deg" }],
+    transform: [
+      {
+        rotate: "-20deg",
+      },
+    ],
   },
 
   title: {
@@ -265,7 +497,7 @@ const styles = StyleSheet.create({
     color: "#777A76",
   },
 
-  /* Input */
+  /* INPUT */
 
   inputSection: {
     marginTop: 40,
@@ -292,6 +524,11 @@ const styles = StyleSheet.create({
 
   inputFocused: {
     borderColor: "#617064",
+  },
+
+  inputError: {
+    borderColor: "#D45448",
+    backgroundColor: "#FFFDFC",
   },
 
   countryCode: {
@@ -324,10 +561,50 @@ const styles = StyleSheet.create({
     color: "#9A9C98",
   },
 
-  /* Bottom */
+  /* ERROR */
+
+  errorContainer: {
+    marginTop: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#FFF1EF",
+    borderWidth: 1,
+    borderColor: "#F0D0CB",
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  errorIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#C63C31",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    marginTop: 1,
+  },
+
+  errorIconText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+
+  errorText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: "#B42318",
+  },
+
+  /* BOTTOM */
 
   bottomSection: {
-    paddingTop: 16,
+    marginTop: "auto",
+    paddingTop: 24,
   },
 
   continueButton: {
@@ -349,6 +626,13 @@ const styles = StyleSheet.create({
 
   continueText: {
     fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  loadingButtonText: {
+    marginLeft: 10,
+    fontSize: 15,
     fontWeight: "700",
     color: "#FFFFFF",
   },
