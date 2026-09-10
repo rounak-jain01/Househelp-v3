@@ -5,8 +5,6 @@ import {
   getMessaging,
   getToken,
   onTokenRefresh,
-  requestPermission,
-  AuthorizationStatus,
   onMessage,
 } from '@react-native-firebase/messaging';
 
@@ -20,9 +18,13 @@ import {
 
 import { getAuth } from '@react-native-firebase/auth';
 
-/**
- * Foreground notification behaviour.
- */
+export type NotificationPayload = {
+  type?: string;
+  bookingId?: string;
+};
+
+const ANDROID_CHANNEL_ID = 'homehelp-default';
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
@@ -32,16 +34,13 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Android notification channel.
- */
-async function createAndroidNotificationChannel() {
+async function createAndroidNotificationChannel(): Promise<void> {
   if (Platform.OS !== 'android') {
     return;
   }
 
   await Notifications.setNotificationChannelAsync(
-    'homehelp-default',
+    ANDROID_CHANNEL_ID,
     {
       name: 'HomeHelp',
       importance: Notifications.AndroidImportance.HIGH,
@@ -52,9 +51,6 @@ async function createAndroidNotificationChannel() {
   );
 }
 
-/**
- * Ask notification permission.
- */
 export async function requestNotificationPermission(): Promise<boolean> {
   try {
     await createAndroidNotificationChannel();
@@ -62,20 +58,19 @@ export async function requestNotificationPermission(): Promise<boolean> {
     const currentPermission =
       await Notifications.getPermissionsAsync();
 
-    let expoStatus = currentPermission.status;
+    let status = currentPermission.status;
 
-    if (expoStatus !== 'granted') {
+    if (status !== 'granted') {
       const requestedPermission =
         await Notifications.requestPermissionsAsync();
 
-      expoStatus = requestedPermission.status;
+      status = requestedPermission.status;
     }
 
-    if (expoStatus !== 'granted') {
+    if (status !== 'granted') {
       console.warn(
         '[Notifications] Notification permission not granted.',
       );
-
       return false;
     }
 
@@ -85,17 +80,11 @@ export async function requestNotificationPermission(): Promise<boolean> {
       '[Notifications] Permission request failed:',
       error,
     );
-
     return false;
   }
 }
 
-/**
- * Get native FCM token.
- */
-export async function getHomeHelpFcmToken(): Promise<
-  string | null
-> {
+export async function getHomeHelpFcmToken(): Promise<string | null> {
   if (Platform.OS !== 'android') {
     return null;
   }
@@ -108,9 +97,7 @@ export async function getHomeHelpFcmToken(): Promise<
       return null;
     }
 
-    const messaging = getMessaging();
-
-    const token = await getToken(messaging);
+    const token = await getToken(getMessaging());
 
     if (!token) {
       console.warn(
@@ -119,24 +106,16 @@ export async function getHomeHelpFcmToken(): Promise<
       return null;
     }
 
-    console.log(
-      '[Notifications] FCM token received.',
-    );
-
     return token;
   } catch (error) {
     console.error(
       '[Notifications] Failed to get FCM token:',
       error,
     );
-
     return null;
   }
 }
 
-/**
- * Save FCM token to customer/maid profile.
- */
 export async function registerFcmToken(
   collectionName: 'users' | 'maids',
   uid: string,
@@ -146,8 +125,7 @@ export async function registerFcmToken(
   }
 
   try {
-    const token =
-      await getHomeHelpFcmToken();
+    const token = await getHomeHelpFcmToken();
 
     if (!token) {
       return null;
@@ -174,14 +152,10 @@ export async function registerFcmToken(
       '[Notifications] Failed to save FCM token:',
       error,
     );
-
     return null;
   }
 }
 
-/**
- * Remove current device token.
- */
 export async function removeFcmToken(
   collectionName: 'users' | 'maids',
   uid: string,
@@ -192,14 +166,8 @@ export async function removeFcmToken(
   }
 
   try {
-    let tokenToRemove = token;
-
-    if (!tokenToRemove) {
-      tokenToRemove =
-        await getToken(
-          getMessaging(),
-        );
-    }
+    const tokenToRemove =
+      token ?? (await getToken(getMessaging()));
 
     if (!tokenToRemove) {
       return;
@@ -212,14 +180,8 @@ export async function removeFcmToken(
         uid,
       ),
       {
-        fcmTokens: arrayRemove(
-          tokenToRemove,
-        ),
+        fcmTokens: arrayRemove(tokenToRemove),
       },
-    );
-
-    console.log(
-      `[Notifications] Token removed for ${collectionName}/${uid}`,
     );
   } catch (error) {
     console.error(
@@ -229,25 +191,50 @@ export async function removeFcmToken(
   }
 }
 
-/**
- * Listen for FCM token changes.
- */
 export function subscribeToFcmTokenRefresh(
   collectionName: 'users' | 'maids',
   uid: string,
 ) {
-  return () => {
-    // Token refresh listener temporarily disabled.
-  };
+  const messaging = getMessaging();
+
+  return onTokenRefresh(
+    messaging,
+    async (newToken) => {
+      if (!newToken || !uid) {
+        return;
+      }
+
+      try {
+        await updateDoc(
+          doc(
+            getFirestore(),
+            collectionName,
+            uid,
+          ),
+          {
+            fcmTokens: arrayUnion(newToken),
+          },
+        );
+
+        console.log(
+          `[Notifications] Refreshed FCM token saved for ${collectionName}/${uid}`,
+        );
+      } catch (error) {
+        console.error(
+          '[Notifications] Failed to save refreshed token:',
+          error,
+        );
+      }
+    },
+  );
 }
 
-/**
- * Register notification token for current user
- * and return token-refresh unsubscribe function.
- */
 export async function registerCurrentUserNotificationToken(
   role: 'customer' | 'maid',
-): Promise<(() => void) | null> {
+): Promise<{
+  token: string | null;
+  unsubscribe: () => void;
+} | null> {
   const user = getAuth().currentUser;
 
   if (!user) {
@@ -255,108 +242,134 @@ export async function registerCurrentUserNotificationToken(
   }
 
   const collectionName =
-    role === 'maid'
-      ? 'maids'
-      : 'users';
+    role === 'maid' ? 'maids' : 'users';
 
-  await registerFcmToken(
+  const token = await registerFcmToken(
     collectionName,
     user.uid,
   );
 
-  return subscribeToFcmTokenRefresh(
+  const unsubscribe = subscribeToFcmTokenRefresh(
     collectionName,
     user.uid,
   );
-}
 
-/**
- * Background FCM handler.
- *
- * This must be registered once when the app starts.
- */
-export function configureBackgroundNotifications(): void {
-  // Background notification display is handled by
-  // Android/FCM when the server sends a notification payload.
-  //
-  // We intentionally do not register
-  // setBackgroundMessageHandler() here because the current
-  // Android native build is throwing:
-  // Native module NativeRNFBTurboMessaging is not registered.
-}
-
-/**
- * Foreground FCM listener.
- *
- * Since FCM foreground messages do not automatically create
- * a visible Android notification, we create an Expo local
- * notification from the FCM payload.
- */
-export function subscribeToForegroundNotifications() {
-  // Foreground FCM listener is temporarily disabled.
-  //
-  // The current Android native build is reporting:
-  // NativeRNFBTurboMessaging is not registered.
-  //
-  // Background notification testing does not require
-  // a JS foreground listener when the backend sends
-  // a standard notification payload.
-
-  return () => {
-    // no-op cleanup
+  return {
+    token,
+    unsubscribe,
   };
 }
 
 /**
- * Notification tap listener.
+ * Background notification display is intentionally delegated to Android/FCM.
+ * A normal FCM notification payload will be shown automatically when the app
+ * is backgrounded or terminated.
  */
+export function configureBackgroundNotifications(): void {
+  // Intentionally no JS background handler.
+}
+
+export function subscribeToForegroundNotifications() {
+  return onMessage(
+    getMessaging(),
+    async (remoteMessage) => {
+      try {
+        await createAndroidNotificationChannel();
+
+        const title =
+          remoteMessage.notification?.title ?? 'HomeHelp';
+
+        const body =
+          remoteMessage.notification?.body ??
+          'You have a new notification.';
+
+        const data: NotificationPayload = {
+          type:
+            typeof remoteMessage.data?.type === 'string'
+              ? remoteMessage.data.type
+              : undefined,
+          bookingId:
+            typeof remoteMessage.data?.bookingId === 'string'
+              ? remoteMessage.data.bookingId
+              : undefined,
+        };
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title,
+            body,
+            data,
+          },
+          trigger: null,
+        });
+
+        console.log(
+          '[Notifications] Foreground notification displayed.',
+          remoteMessage.messageId,
+        );
+      } catch (error) {
+        console.error(
+          '[Notifications] Foreground notification failed:',
+          error,
+        );
+      }
+    },
+  );
+}
+
 export function subscribeToNotificationResponse(
-  callback: (payload: {
-    type?: string;
-    bookingId?: string;
-  }) => void,
+  callback: (payload: NotificationPayload) => void,
 ) {
   return Notifications.addNotificationResponseReceivedListener(
     (response) => {
       const data =
-        response.notification.request.content
-          .data as {
-          type?: string;
-          bookingId?: string;
-        };
+        response.notification.request.content.data as
+          | NotificationPayload
+          | undefined;
 
       callback({
-        type: data?.type,
-        bookingId: data?.bookingId,
+        type:
+          typeof data?.type === 'string'
+            ? data.type
+            : undefined,
+        bookingId:
+          typeof data?.bookingId === 'string'
+            ? data.bookingId
+            : undefined,
       });
     },
   );
 }
 
-/**
- * Get notification response when app was opened
- * from a completely closed state.
- */
-export async function getInitialNotificationResponse(): Promise<{
-  type?: string;
-  bookingId?: string;
-} | null> {
-  const response =
-    await Notifications.getLastNotificationResponseAsync();
+export async function getInitialNotificationResponse(): Promise<NotificationPayload | null> {
+  try {
+    const response =
+      await Notifications.getLastNotificationResponseAsync();
 
-  if (!response) {
+    if (!response) {
+      return null;
+    }
+
+    const data =
+      response.notification.request.content.data as
+        | NotificationPayload
+        | undefined;
+
+    return {
+      type:
+        typeof data?.type === 'string'
+          ? data.type
+          : undefined,
+      bookingId:
+        typeof data?.bookingId === 'string'
+          ? data.bookingId
+          : undefined,
+    };
+  } catch (error) {
+    console.error(
+      '[Notifications] Failed to read initial notification:',
+      error,
+    );
     return null;
   }
-
-  const data =
-    response.notification.request.content
-      .data as {
-      type?: string;
-      bookingId?: string;
-    };
-
-  return {
-    type: data?.type,
-    bookingId: data?.bookingId,
-  };
 }

@@ -7,40 +7,138 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
     function isCustomerForBooking(bookingId) {
       return isSignedIn()
-        && get(
-          /databases/$(database)/documents/bookings/$(bookingId)
-        ).data.customerId
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && get(/databases/$(database)/documents/bookings/$(bookingId)).data.customerId
           == request.auth.uid;
+    }
+
+    function isAssignedMaidForBooking(bookingId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && (
+          get(/databases/$(database)/documents/bookings/$(bookingId)).data.maidId
+            == request.auth.uid
+          ||
+          get(/databases/$(database)/documents/bookings/$(bookingId)).data.winningMaidId
+            == request.auth.uid
+        );
+    }
+
+    function isMaidOwner(maidId) {
+      return isSignedIn() && request.auth.uid == maidId;
+    }
+
+    function validResponse(value) {
+      return value == 'pending'
+        || value == 'accepted'
+        || value == 'rejected';
     }
 
     /*
      * -----------------------------------------
      * USERS
      * -----------------------------------------
+     *
+     * The client owns basic profile data, but may
+     * never use the user document to escalate role,
+     * verification, or other server-controlled state.
      */
     match /users/{userId} {
-      allow read, create, update: if
-        isSignedIn()
-        && request.auth.uid == userId;
+      allow read: if isUser(userId);
+
+      allow create: if
+        isUser(userId)
+        && !request.resource.data.keys().hasAny([
+          'isAdmin',
+          'admin',
+          'verificationStatus',
+          'verified',
+          'verifiedAt'
+        ]);
+
+      allow update: if
+        isUser(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isAdmin',
+          'admin',
+          'role',
+          'verificationStatus',
+          'verified',
+          'verifiedAt'
+        ]);
 
       allow delete: if false;
+
+      /*
+       * In-app notification center.
+       * Notifications are written by Cloud Functions/Admin SDK.
+       */
+      match /notifications/{notificationId} {
+        allow read: if isUser(userId);
+        allow create, update, delete: if false;
+      }
     }
 
     /*
      * -----------------------------------------
      * MAIDS
      * -----------------------------------------
+     *
+     * Maid profile/location data is client-managed.
+     * Booking assignment and verification state are
+     * server-managed and cannot be changed by the maid.
      */
     match /maids/{maidId} {
       allow read: if isSignedIn();
 
-      allow create, update: if
-        isSignedIn()
-        && request.auth.uid == maidId;
+      /*
+       * Development onboarding currently creates the
+       * maid with verificationStatus="verified".
+       * Keep that explicit one-time bypass for the pilot,
+       * but do not allow changing verification after creation.
+       * Replace this create condition with an admin-only
+       * verification flow before production launch.
+       */
+      allow create: if
+        isMaidOwner(maidId)
+        && (
+          !request.resource.data.keys().hasAny(['verificationStatus'])
+          || request.resource.data.verificationStatus == 'verified'
+        )
+        && !request.resource.data.keys().hasAny([
+          'isAdmin',
+          'admin',
+          'activeBookingId'
+        ]);
+
+      allow update: if
+        isMaidOwner(maidId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isAdmin',
+          'admin',
+          'role',
+          'verificationStatus',
+          'verified',
+          'verifiedAt',
+          'activeBookingId'
+        ]);
 
       allow delete: if false;
+
+      /*
+       * In-app notification center.
+       * Notifications are written by Cloud Functions/Admin SDK.
+       */
+      match /notifications/{notificationId} {
+        allow read: if isMaidOwner(maidId);
+        allow create, update, delete: if false;
+      }
     }
 
     /*
@@ -50,20 +148,50 @@ service cloud.firestore {
      */
     match /categories/{categoryId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      allow create, update, delete: if false;
     }
 
     /*
      * -----------------------------------------
      * BOOKINGS
      * -----------------------------------------
+     *
+     * Booking state transitions are server-side only.
+     * The client may create a new booking, but cannot
+     * self-assign a maid, mark it confirmed/in-progress,
+     * alter the price/state, or manipulate assignment data.
      */
     match /bookings/{bookingId} {
 
       allow create: if
         isSignedIn()
-        && request.resource.data.customerId
-          == request.auth.uid;
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && !request.resource.data.keys().hasAny([
+          'maidId',
+          'winningMaidId',
+          'maidDetails',
+          'offeredMaidIds',
+          'maidResponses',
+          'requestExpiresAt',
+          'assignedAt',
+          'confirmedAt',
+          'startedAt',
+          'completedAt',
+          'cancelledAt',
+          'cancelledBy',
+          'cancellationReason',
+          'startOtpHash',
+          'startOtpAttempts',
+          'startOtpLockedUntil',
+          'startOtpUsedAt',
+          'extraTimeStatus',
+          'requestedExtraMinutes',
+          'requestedAt',
+          'respondedAt',
+          'approvedExtraMinutes',
+          'totalDurationMinutes'
+        ]);
 
       /*
        * Customer or assigned maid can read.
@@ -71,70 +199,51 @@ service cloud.firestore {
       allow read: if
         isSignedIn()
         && (
-          resource.data.customerId
-            == request.auth.uid
-          ||
-          resource.data.maidId
-            == request.auth.uid
-          ||
-          resource.data.winningMaidId
-            == request.auth.uid
+          resource.data.customerId == request.auth.uid
+          || resource.data.maidId == request.auth.uid
+          || resource.data.winningMaidId == request.auth.uid
         );
 
       /*
-       * Booking state changes happen through
-       * Cloud Functions.
-       *
-       * Therefore clients cannot directly update
-       * the booking document.
+       * All lifecycle updates go through Cloud Functions.
        */
-      allow update: if false;
-
-      allow delete: if false;
+      allow update, delete: if false;
 
       /*
        * ---------------------------------------
        * MAID REQUESTS
        * ---------------------------------------
+       *
+       * Backend creates these documents. The offered
+       * maid can only submit a response while the request
+       * is still pending. Once accepted/rejected, the client
+       * cannot change it again.
        */
       match /maidRequests/{requestMaidId} {
-
-        /*
-         * Assigned maid can read her request.
-         */
         allow read: if
           isSignedIn()
-          && resource.data.maidId
-             == request.auth.uid;
+          && resource.data.maidId == request.auth.uid
+          && requestMaidId == request.auth.uid;
 
         allow create: if false;
 
-        /*
-         * Maid may change only response fields.
-         */
         allow update: if
           isSignedIn()
-          && resource.data.maidId
-             == request.auth.uid
-          && request.resource.data.maidId
-             == request.auth.uid
-          && request.resource.data
-               .diff(resource.data)
-               .affectedKeys()
-               .hasOnly([
-                 'response',
-                 'responseReason',
-                 'updatedAt'
-               ])
+          && requestMaidId == request.auth.uid
+          && resource.data.maidId == request.auth.uid
+          && resource.data.response == 'pending'
+          && request.resource.data.maidId == request.auth.uid
+          && validResponse(request.resource.data.response)
+          && request.resource.data.response != 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'response',
+            'responseReason',
+            'updatedAt'
+          ])
+          && request.resource.data.updatedAt == request.time
           && (
-            request.resource.data.response
-              == 'pending'
-            ||
-            request.resource.data.response
-              == 'accepted'
-            ||
-            request.resource.data.response
-              == 'rejected'
+            !request.resource.data.keys().hasAny(['responseReason'])
+            || request.resource.data.responseReason is string
           );
 
         allow delete: if false;
@@ -145,62 +254,50 @@ service cloud.firestore {
        * CUSTOMER-ONLY BOOKING SECRET
        * ---------------------------------------
        *
-       * Plain OTP lives here.
-       *
-       * Assigned maid must NEVER be able to read it.
+       * Plain OTP lives here. Only the customer who owns
+       * the booking may read it. Cloud Functions/Admin SDK
+       * write it server-side.
        */
       match /customerSecrets/{secretId} {
-
-        allow read: if
-          isCustomerForBooking(
-            bookingId
-          );
-
-        /*
-         * Secret is generated/updated only by
-         * Cloud Functions/Admin SDK.
-         */
+        allow read: if isCustomerForBooking(bookingId);
         allow create, update, delete: if false;
       }
     }
 
     /*
      * -----------------------------------------
-     * COLLECTION GROUP MAID REQUESTS
+     * COLLECTION-GROUP MAID REQUESTS
      * -----------------------------------------
+     *
+     * Kept intentionally strict as a second guard for
+     * collection-group access. Nested rules above remain
+     * the primary rule for booking-scoped access.
      */
     match /{path=**}/maidRequests/{requestMaidId} {
-
       allow read: if
         isSignedIn()
-        && resource.data.maidId
-           == request.auth.uid;
+        && requestMaidId == request.auth.uid
+        && resource.data.maidId == request.auth.uid;
 
       allow create: if false;
 
       allow update: if
         isSignedIn()
-        && resource.data.maidId
-           == request.auth.uid
-        && request.resource.data.maidId
-           == request.auth.uid
-        && request.resource.data
-             .diff(resource.data)
-             .affectedKeys()
-             .hasOnly([
-               'response',
-               'responseReason',
-               'updatedAt'
-             ])
+        && requestMaidId == request.auth.uid
+        && resource.data.maidId == request.auth.uid
+        && resource.data.response == 'pending'
+        && request.resource.data.maidId == request.auth.uid
+        && validResponse(request.resource.data.response)
+        && request.resource.data.response != 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'response',
+          'responseReason',
+          'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time
         && (
-          request.resource.data.response
-            == 'pending'
-          ||
-          request.resource.data.response
-            == 'accepted'
-          ||
-          request.resource.data.response
-            == 'rejected'
+          !request.resource.data.keys().hasAny(['responseReason'])
+          || request.resource.data.responseReason is string
         );
 
       allow delete: if false;
