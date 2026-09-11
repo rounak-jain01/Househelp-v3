@@ -161,6 +161,7 @@ export function subscribeToPendingMaidBookingRequestIds(
   const requestsQuery = query(
     collectionGroup(db, 'maidRequests'),
     where('maidId', '==', maidId),
+    where('response', '==', 'pending'),
   );
 
   return onSnapshot(
