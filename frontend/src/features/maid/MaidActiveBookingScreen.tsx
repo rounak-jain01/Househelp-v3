@@ -11,7 +11,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-
 import { router } from "expo-router";
 
 import {
@@ -19,6 +18,10 @@ import {
   collection,
   getDocs,
 } from "@react-native-firebase/firestore";
+
+import {
+  getAuth,
+} from "@react-native-firebase/auth";
 
 import {
   startBookingWithOtp,
@@ -50,6 +53,9 @@ type Booking = {
   customerAddress?: CustomerAddress;
   categories?: string[];
   duration?: number;
+  totalDurationMinutes?: number;
+  approvedExtraMinutes?: number;
+  extraTimeStatus?: "none" | "requested" | "approved" | "rejected";
   scheduledDateTime?: unknown;
   totalPrice?: number;
   status?: BookingStatus;
@@ -57,6 +63,7 @@ type Booking = {
   maidId?: string | null;
   winningMaidId?: string | null;
   startedAt?: unknown;
+  startOtpUsedAt?: unknown;
   completedAt?: unknown;
   cancelledAt?: unknown;
   cancellationReason?: string;
@@ -92,21 +99,29 @@ const copy = {
     markCompleted: "Mark job completed",
     completing: "Completing...",
     completed: "Booking completed",
-    completedMessage: "This booking has been successfully completed.",
+    completedMessage:
+      "This booking has been successfully completed.",
     goHome: "Back to home",
     cancelled: "Booking cancelled",
-    cancelledMessage: "This booking was cancelled by the customer.",
+    cancelledMessage:
+      "This booking was cancelled by the customer.",
     noHelpFound: "No Help found",
-    noHelpMessage: "This booking could not be assigned.",
+    noHelpMessage:
+      "This booking could not be assigned.",
     assigned: "Help assigned",
     confirmed: "Booking confirmed",
     errorUnableToLoad: "Unable to load booking.",
-    errorStartCode: "Enter the customer's 6-digit start code.",
-    errorUnableToStart: "Unable to start the job.",
-    errorUnableToComplete: "Unable to complete the booking.",
+    errorStartCode:
+      "Enter the customer's 6-digit start code.",
+    errorUnableToStart:
+      "Unable to start the job.",
+    errorUnableToComplete:
+      "Unable to complete the booking.",
     noServices: "No services",
-    addressUnavailable: "Address unavailable",
+    addressUnavailable:
+      "Address unavailable",
     notAvailable: "Not available",
+    invalidBooking: "This booking is no longer available.",
   },
 
   hi: {
@@ -126,7 +141,8 @@ const copy = {
     hours: "घंटे",
     hour: "घंटा",
     customerStartCode: "ग्राहक का स्टार्ट कोड",
-    askForCode: "ग्राहक से उसकी स्क्रीन पर दिख रहा 6 अंकों का कोड पूछें।",
+    askForCode:
+      "ग्राहक से उसकी स्क्रीन पर दिख रहा 6 अंकों का कोड पूछें।",
     enterCode: "6 अंकों का कोड डालें",
     startJob: "काम शुरू करें",
     starting: "शुरू हो रहा है...",
@@ -135,21 +151,31 @@ const copy = {
     markCompleted: "काम पूरा करें",
     completing: "पूरा किया जा रहा है...",
     completed: "बुकिंग पूरी हो गई",
-    completedMessage: "यह बुकिंग सफलतापूर्वक पूरी हो गई है।",
+    completedMessage:
+      "यह बुकिंग सफलतापूर्वक पूरी हो गई है।",
     goHome: "होम पर जाएं",
     cancelled: "बुकिंग रद्द",
-    cancelledMessage: "ग्राहक ने यह बुकिंग रद्द कर दी है।",
+    cancelledMessage:
+      "ग्राहक ने यह बुकिंग रद्द कर दी है।",
     noHelpFound: "Help नहीं मिली",
-    noHelpMessage: "यह बुकिंग असाइन नहीं हो सकी।",
+    noHelpMessage:
+      "यह बुकिंग असाइन नहीं हो सकी।",
     assigned: "Help असाइन हो गई",
     confirmed: "बुकिंग कन्फर्म है",
-    errorUnableToLoad: "बुकिंग लोड नहीं हो सकी।",
-    errorStartCode: "ग्राहक का 6 अंकों का स्टार्ट कोड डालें।",
-    errorUnableToStart: "काम शुरू नहीं हो सका।",
-    errorUnableToComplete: "बुकिंग पूरी नहीं हो सकी।",
+    errorUnableToLoad:
+      "बुकिंग लोड नहीं हो सकी।",
+    errorStartCode:
+      "ग्राहक का 6 अंकों का स्टार्ट कोड डालें।",
+    errorUnableToStart:
+      "काम शुरू नहीं हो सका।",
+    errorUnableToComplete:
+      "बुकिंग पूरी नहीं हो सकी।",
     noServices: "कोई सेवा नहीं",
-    addressUnavailable: "पता उपलब्ध नहीं",
+    addressUnavailable:
+      "पता उपलब्ध नहीं",
     notAvailable: "उपलब्ध नहीं",
+    invalidBooking:
+      "यह बुकिंग अब उपलब्ध नहीं है।",
   },
 } as const;
 
@@ -169,45 +195,70 @@ function getDate(value: unknown): Date | null {
         }
       ).toDate === "function"
     ) {
-      return (
+      const date = (
         value as {
           toDate: () => Date;
         }
       ).toDate();
+
+      return date instanceof Date &&
+        !Number.isNaN(date.getTime())
+        ? date
+        : null;
     }
 
     const date = new Date(String(value));
 
-    return Number.isNaN(date.getTime()) ? null : date;
+    return Number.isNaN(date.getTime())
+      ? null
+      : date;
   } catch {
     return null;
   }
 }
 
-function formatDateTime(value: unknown, language: Language): string {
+function formatDateTime(
+  value: unknown,
+  language: Language,
+): string {
   const date = getDate(value);
 
   if (!date) {
     return "—";
   }
 
-  return date.toLocaleString(language === "hi" ? "hi-IN" : "en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return date.toLocaleString(
+    language === "hi"
+      ? "hi-IN"
+      : "en-IN",
+    {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    },
+  );
 }
 
-function formatDuration(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
+function formatDuration(
+  totalSeconds: number,
+): string {
+  const safeSeconds = Math.max(
+    0,
+    Math.floor(totalSeconds),
+  );
 
-  const hours = Math.floor(safeSeconds / 3600);
+  const hours = Math.floor(
+    safeSeconds / 3600,
+  );
 
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const minutes = Math.floor(
+    (safeSeconds % 3600) / 60,
+  );
 
-  const secondsPart = safeSeconds % 60;
+  const secondsPart =
+    safeSeconds % 60;
 
   return [
     String(hours).padStart(2, "0"),
@@ -216,86 +267,187 @@ function formatDuration(seconds: number): string {
   ].join(":");
 }
 
+function getEffectiveDurationMinutes(
+  booking: Booking,
+): number {
+  const explicitTotal =
+    Number(booking.totalDurationMinutes);
+
+  if (
+    Number.isFinite(explicitTotal) &&
+    explicitTotal > 0
+  ) {
+    return Math.floor(
+      explicitTotal,
+    );
+  }
+
+  const originalDurationMinutes =
+    Number(booking.duration ?? 0) *
+    60;
+
+  const approvedExtraMinutes =
+    Number(
+      booking.approvedExtraMinutes ?? 0,
+    );
+
+  return Math.max(
+    0,
+    originalDurationMinutes +
+      (Number.isFinite(
+        approvedExtraMinutes,
+      )
+        ? approvedExtraMinutes
+        : 0),
+  );
+}
+
 export default function MaidActiveBookingScreen({
   bookingId,
 }: {
   bookingId: string;
 }) {
-  const user = useMemo(
-    () => ({
-      uid: require("@react-native-firebase/auth").getAuth().currentUser?.uid,
-    }),
+  const { language } =
+    useMaidLanguage();
+
+  const t = copy[language];
+
+  const userId = useMemo(
+    () =>
+      getAuth().currentUser?.uid ??
+      null,
     [],
   );
 
-  const { language } = useMaidLanguage();
-  const t = copy[language];
+  const [booking, setBooking] =
+    useState<Booking | null>(
+      null,
+    );
 
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [
+    categoryNames,
+    setCategoryNames,
+  ] = useState<
+    Record<string, string>
+  >({});
 
-  const [categoryNames, setCategoryNames] = useState<Record<string, string>>(
-    {},
-  );
+  const [otp, setOtp] =
+    useState("");
 
-  const [otp, setOtp] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] =
+    useState(true);
 
-  const [isStarting, setIsStarting] = useState(false);
+  const [isStarting, setIsStarting] =
+    useState(false);
 
-  const [isCompleting, setIsCompleting] = useState(false);
+  const [isCompleting, setIsCompleting] =
+    useState(false);
 
-  const [error, setError] = useState("");
-  const [now, setNow] = useState(() => new Date());
+  const [error, setError] =
+    useState("");
+
+  const [now, setNow] =
+    useState(() => new Date());
 
   useEffect(() => {
-    if (!user.uid || !bookingId) {
+    const normalizedBookingId =
+      bookingId?.trim();
+
+    if (!userId || !normalizedBookingId) {
       setIsLoading(false);
+      setError(t.errorUnableToLoad);
       return;
     }
 
-    const unsubscribe = subscribeToMaidBooking(
-      bookingId,
-      (value) => {
-        setBooking(value as Booking | null);
-        setIsLoading(false);
-      },
-      (listenerError) => {
-        console.error("[MaidActiveBooking] Listener failed:", listenerError);
+    let active = true;
 
-        setError(listenerError.message || t.errorUnableToLoad);
+    const unsubscribe =
+      subscribeToMaidBooking(
+        normalizedBookingId,
+        (value) => {
+          if (!active) {
+            return;
+          }
 
-        setIsLoading(false);
-      },
-    );
+          setBooking(
+            value as Booking | null,
+          );
+          setIsLoading(false);
+        },
+        (listenerError) => {
+          if (!active) {
+            return;
+          }
 
-    return unsubscribe;
-  }, [bookingId, user.uid, t.errorUnableToLoad]);
+          console.error(
+            "[MaidActiveBooking] Listener failed:",
+            listenerError,
+          );
+
+          setError(
+            listenerError.message ||
+              t.errorUnableToLoad,
+          );
+          setIsLoading(false);
+        },
+      );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [
+    bookingId,
+    userId,
+    t.errorUnableToLoad,
+  ]);
 
   useEffect(() => {
     let mounted = true;
 
-    getDocs(collection(getFirestore(), "categories"))
-      .then((snapshot) => {
-        if (!mounted) {
-          return;
+    const loadCategories =
+      async () => {
+        try {
+          const snapshot =
+            await getDocs(
+              collection(
+                getFirestore(),
+                "categories",
+              ),
+            );
+
+          if (!mounted) {
+            return;
+          }
+
+          const map: Record<
+            string,
+            string
+          > = {};
+
+          snapshot.docs.forEach(
+            (document) => {
+              const data =
+                document.data();
+
+              map[document.id] =
+                typeof data.name ===
+                "string"
+                  ? data.name
+                  : document.id;
+            },
+          );
+
+          setCategoryNames(map);
+        } catch (categoryError) {
+          console.error(
+            "[MaidActiveBooking] Category load failed:",
+            categoryError,
+          );
         }
+      };
 
-        const map: Record<string, string> = {};
-
-        snapshot.docs.forEach((document) => {
-          const data = document.data();
-
-          map[document.id] = String(data.name ?? document.id);
-        });
-
-        setCategoryNames(map);
-      })
-      .catch((categoryError) => {
-        console.error(
-          "[MaidActiveBooking] Category load failed:",
-          categoryError,
-        );
-      });
+    void loadCategories();
 
     return () => {
       mounted = false;
@@ -303,109 +455,241 @@ export default function MaidActiveBookingScreen({
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 1000);
+    const timer =
+      setInterval(() => {
+        setNow(new Date());
+      }, 1000);
 
     return () => {
       clearInterval(timer);
     };
   }, []);
 
-  const status = booking?.status ?? "pending";
+  const status =
+    booking?.status ??
+    "pending";
 
-  const startedAt = getDate(booking?.startedAt);
-
-  const bookedSeconds = Number(booking?.duration ?? 0) * 60 * 60;
-
-  const elapsedSeconds = startedAt
-    ? Math.max(0, (now.getTime() - startedAt.getTime()) / 1000)
-    : 0;
-
-  const remainingSeconds = Math.max(0, bookedSeconds - elapsedSeconds);
-
-  const serviceNames = (booking?.categories ?? []).map(
-    (categoryId) => categoryNames[categoryId] ?? categoryId,
+  const startedAt = getDate(
+    booking?.startedAt,
   );
 
-  const directionsUrl = useMemo(() => {
-    const latitude = booking?.customerAddress?.latitude;
+  const effectiveMinutes =
+    booking
+      ? getEffectiveDurationMinutes(
+          booking,
+        )
+      : 0;
 
-    const longitude = booking?.customerAddress?.longitude;
+  const bookedSeconds =
+    effectiveMinutes * 60;
 
-    if (typeof latitude !== "number" || typeof longitude !== "number") {
-      return null;
-    }
+  const elapsedSeconds =
+    startedAt
+      ? Math.max(
+          0,
+          (
+            now.getTime() -
+            startedAt.getTime()
+          ) / 1000,
+        )
+      : 0;
 
-    return (
-      "https://www.google.com/maps/dir/?api=1" +
-      `&destination=${latitude},${longitude}`
+  const remainingSeconds =
+    Math.max(
+      0,
+      bookedSeconds -
+        elapsedSeconds,
     );
-  }, [booking?.customerAddress?.latitude, booking?.customerAddress?.longitude]);
 
-  const handleDirections = async () => {
-    if (!directionsUrl) {
-      return;
-    }
-
-    try {
-      await Linking.openURL(directionsUrl);
-    } catch (navigationError) {
-      console.error("[MaidActiveBooking] Directions failed:", navigationError);
-    }
-  };
-
-  const handleStartJob = async () => {
-    const cleanOtp = otp.trim();
-
-    if (!/^\d{6}$/.test(cleanOtp)) {
-      setError(t.errorStartCode);
-      return;
-    }
-
-    try {
-      setError("");
-      setIsStarting(true);
-
-      await startBookingWithOtp(bookingId, cleanOtp);
-
-      setOtp("");
-    } catch (startError) {
-      console.error("[MaidActiveBooking] Start job failed:", startError);
-
-      setError(
-        startError instanceof Error ? startError.message : t.errorUnableToStart,
+  const serviceNames =
+    (booking?.categories ?? [])
+      .map(
+        (categoryId) =>
+          categoryNames[
+            categoryId
+          ] ?? categoryId,
       );
-    } finally {
-      setIsStarting(false);
-    }
-  };
 
-  const handleComplete = async () => {
-    try {
-      setError("");
-      setIsCompleting(true);
+  const directionsUrl =
+    useMemo(() => {
+      const latitude =
+        booking?.customerAddress
+          ?.latitude;
 
-      await completeBooking(bookingId);
-    } catch (completionError) {
-      console.error("[MaidActiveBooking] Complete failed:", completionError);
+      const longitude =
+        booking?.customerAddress
+          ?.longitude;
 
-      setError(
-        completionError instanceof Error
-          ? completionError.message
-          : t.errorUnableToComplete,
+      if (
+        typeof latitude !==
+          "number" ||
+        typeof longitude !==
+          "number" ||
+        !Number.isFinite(
+          latitude,
+        ) ||
+        !Number.isFinite(
+          longitude,
+        ) ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        return null;
+      }
+
+      return (
+        "https://www.google.com/maps/dir/?api=1" +
+        `&destination=${latitude},${longitude}`
       );
-    } finally {
-      setIsCompleting(false);
-    }
-  };
+    }, [
+      booking
+        ?.customerAddress
+        ?.latitude,
+      booking
+        ?.customerAddress
+        ?.longitude,
+    ]);
+
+  const handleDirections =
+    async () => {
+      if (!directionsUrl) {
+        setError(
+          t.addressUnavailable,
+        );
+        return;
+      }
+
+      try {
+        setError("");
+        await Linking.openURL(
+          directionsUrl,
+        );
+      } catch (navigationError) {
+        console.error(
+          "[MaidActiveBooking] Directions failed:",
+          navigationError,
+        );
+
+        setError(
+          t.addressUnavailable,
+        );
+      }
+    };
+
+  const handleStartJob =
+    async () => {
+      if (
+        !booking ||
+        booking.status !==
+          "confirmed"
+      ) {
+        setError(
+          t.invalidBooking,
+        );
+        return;
+      }
+
+      const cleanOtp =
+        otp.trim();
+
+      if (
+        !/^\d{6}$/.test(
+          cleanOtp,
+        )
+      ) {
+        setError(
+          t.errorStartCode,
+        );
+        return;
+      }
+
+      if (isStarting) {
+        return;
+      }
+
+      try {
+        setError("");
+        setIsStarting(true);
+
+        await startBookingWithOtp(
+          bookingId,
+          cleanOtp,
+        );
+
+        setOtp("");
+      } catch (startError) {
+        console.error(
+          "[MaidActiveBooking] Start job failed:",
+          startError,
+        );
+
+        setError(
+          startError instanceof
+            Error
+            ? startError.message
+            : t.errorUnableToStart,
+        );
+      } finally {
+        setIsStarting(false);
+      }
+    };
+
+  const handleComplete =
+    async () => {
+      if (
+        !booking ||
+        booking.status !==
+          "in_progress"
+      ) {
+        setError(
+          t.invalidBooking,
+        );
+        return;
+      }
+
+      if (isCompleting) {
+        return;
+      }
+
+      try {
+        setError("");
+        setIsCompleting(true);
+
+        await completeBooking(
+          bookingId,
+        );
+      } catch (completionError) {
+        console.error(
+          "[MaidActiveBooking] Complete failed:",
+          completionError,
+        );
+
+        setError(
+          completionError instanceof
+            Error
+            ? completionError.message
+            : t.errorUnableToComplete,
+        );
+      } finally {
+        setIsCompleting(false);
+      }
+    };
 
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1F7A4C" />
+        <ActivityIndicator
+          size="large"
+          color="#1F7A4C"
+        />
 
-        <Text style={styles.loadingText}>{t.loading}</Text>
+        <Text
+          style={styles.loadingText}
+        >
+          {t.loading}
+        </Text>
       </View>
     );
   }
@@ -413,13 +697,30 @@ export default function MaidActiveBookingScreen({
   if (!booking) {
     return (
       <View style={styles.center}>
-        <Text style={styles.emptyTitle}>{t.bookingNotFound}</Text>
+        <Text
+          style={styles.emptyTitle}
+        >
+          {error ||
+            t.bookingNotFound}
+        </Text>
 
         <Pressable
-          style={styles.homeButton}
-          onPress={() => router.replace("/maid")}
+          style={
+            styles.homeButton
+          }
+          onPress={() =>
+            router.replace(
+              "/maid",
+            )
+          }
         >
-          <Text style={styles.homeButtonText}>{t.goHome}</Text>
+          <Text
+            style={
+              styles.homeButtonText
+            }
+          >
+            {t.goHome}
+          </Text>
         </Pressable>
       </View>
     );
@@ -428,70 +729,159 @@ export default function MaidActiveBookingScreen({
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 20 : 0}
+      behavior={
+        Platform.OS === "ios"
+          ? "padding"
+          : "height"
+      }
+      keyboardVerticalOffset={
+        Platform.OS === "ios"
+          ? 20
+          : 0
+      }
     >
       <ScrollView
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={
+          false
+        }
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.content}
+        contentContainerStyle={
+          styles.content
+        }
       >
-        {/* HEADER */}
-        <View style={styles.header}>
+        <View
+          style={styles.header}
+        >
           <Pressable
-            style={styles.backButton}
-            onPress={() => router.replace("/maid")}
+            style={
+              styles.backButton
+            }
+            onPress={() =>
+              router.replace(
+                "/maid",
+              )
+            }
           >
-            <Text style={styles.backText}>‹</Text>
+            <Text
+              style={styles.backText}
+            >
+              ‹
+            </Text>
           </Pressable>
 
-          <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>{t.homehelp}</Text>
+          <View
+            style={styles.headerText}
+          >
+            <Text
+              style={styles.eyebrow}
+            >
+              {t.homehelp}
+            </Text>
 
-            <Text style={styles.title}>{t.activeBooking}</Text>
+            <Text
+              style={styles.title}
+            >
+              {t.activeBooking}
+            </Text>
           </View>
         </View>
 
-        {/* CUSTOMER */}
-        <View style={styles.customerCard}>
-          <Text style={styles.customerLabel}>{t.customer}</Text>
+        <View
+          style={styles.customerCard}
+        >
+          <Text
+            style={
+              styles.customerLabel
+            }
+          >
+            {t.customer}
+          </Text>
 
-          <Text style={styles.customerName}>
-            {booking.customerName || t.notAvailable}
+          <Text
+            style={
+              styles.customerName
+            }
+          >
+            {booking.customerName ||
+              t.notAvailable}
           </Text>
         </View>
 
-        {/* LOCATION */}
-        <View style={styles.locationCard}>
-          <Text style={styles.sectionLabel}>{t.serviceLocation}</Text>
-
-          <Text style={styles.address}>
-            {booking.customerAddress?.formatted || t.addressUnavailable}
+        <View
+          style={styles.locationCard}
+        >
+          <Text
+            style={
+              styles.sectionLabel
+            }
+          >
+            {t.serviceLocation}
           </Text>
 
-          {booking.customerAddress?.landmark ? (
-            <Text style={styles.landmark}>
-              {t.landmark}: {booking.customerAddress.landmark}
+          <Text
+            style={styles.address}
+          >
+            {booking
+              .customerAddress
+              ?.formatted ||
+              t.addressUnavailable}
+          </Text>
+
+          {booking
+            .customerAddress
+            ?.landmark ? (
+            <Text
+              style={styles.landmark}
+            >
+              {t.landmark}:{" "}
+              {
+                booking
+                  .customerAddress
+                  .landmark
+              }
             </Text>
           ) : null}
 
           {directionsUrl ? (
             <Pressable
-              style={styles.directionsButton}
-              onPress={handleDirections}
+              style={
+                styles.directionsButton
+              }
+              onPress={
+                handleDirections
+              }
             >
-              <Text style={styles.directionsText}>{t.getDirections}</Text>
+              <Text
+                style={
+                  styles.directionsText
+                }
+              >
+                {t.getDirections}
+              </Text>
             </Pressable>
           ) : null}
         </View>
 
-        {/* BOOKING DETAILS */}
-        <View style={styles.detailsCard}>
-          <Text style={styles.detailsTitle}>{t.bookingDetails}</Text>
+        <View
+          style={styles.detailsCard}
+        >
+          <Text
+            style={
+              styles.detailsTitle
+            }
+          >
+            {t.bookingDetails}
+          </Text>
 
           <DetailRow
             label={t.services}
-            value={serviceNames.length ? serviceNames.join(", ") : t.noServices}
+            value={
+              serviceNames.length
+                ? serviceNames.join(
+                    ", ",
+                  )
+                : t.noServices
+            }
           />
 
           <DetailRow
@@ -499,21 +889,40 @@ export default function MaidActiveBookingScreen({
             value={
               booking.duration
                 ? `${booking.duration} ${
-                    booking.duration === 1 ? t.hour : t.hours
+                    booking.duration ===
+                    1
+                      ? t.hour
+                      : t.hours
                   }`
                 : "—"
             }
           />
 
+          {Number(
+            booking.approvedExtraMinutes ??
+              0,
+          ) > 0 ? (
+            <DetailRow
+              label="Extra time"
+              value={`+${
+                booking.approvedExtraMinutes
+              } min`}
+            />
+          ) : null}
+
           <DetailRow
             label={t.scheduled}
-            value={formatDateTime(booking.scheduledDateTime, language)}
+            value={formatDateTime(
+              booking.scheduledDateTime,
+              language,
+            )}
           />
 
           <DetailRow
             label={t.amount}
             value={
-              typeof booking.totalPrice === "number"
+              typeof booking.totalPrice ===
+              "number"
                 ? `₹${booking.totalPrice}`
                 : "—"
             }
@@ -521,121 +930,327 @@ export default function MaidActiveBookingScreen({
           />
         </View>
 
-        {/* CONFIRMED / OTP */}
-        {status === "confirmed" ? (
-          <View style={styles.startCard}>
-            <View style={styles.statusPill}>
-              <Text style={styles.statusPillText}>{t.confirmed}</Text>
+        {status ===
+        "confirmed" ? (
+          <View
+            style={styles.startCard}
+          >
+            <View
+              style={styles.statusPill}
+            >
+              <Text
+                style={
+                  styles.statusPillText
+                }
+              >
+                {t.confirmed}
+              </Text>
             </View>
 
-            <Text style={styles.startTitle}>{t.customerStartCode}</Text>
+            <Text
+              style={styles.startTitle}
+            >
+              {t.customerStartCode}
+            </Text>
 
-            <Text style={styles.startInstruction}>{t.askForCode}</Text>
+            <Text
+              style={
+                styles.startInstruction
+              }
+            >
+              {t.askForCode}
+            </Text>
 
             <TextInput
               value={otp}
-              onChangeText={(value) =>
-                setOtp(value.replace(/[^0-9]/g, "").slice(0, 6))
+              onChangeText={(
+                value,
+              ) =>
+                setOtp(
+                  value
+                    .replace(
+                      /[^0-9]/g,
+                      "",
+                    )
+                    .slice(
+                      0,
+                      6,
+                    ),
+                )
               }
               keyboardType="number-pad"
               maxLength={6}
-              placeholder={t.enterCode}
+              placeholder={
+                t.enterCode
+              }
               placeholderTextColor="#979D98"
-              style={styles.otpInput}
+              style={
+                styles.otpInput
+              }
               returnKeyType="done"
+              editable={!isStarting}
             />
 
             <Pressable
-              style={[styles.startButton, isStarting && styles.disabled]}
-              onPress={handleStartJob}
-              disabled={isStarting}
+              style={[
+                styles.startButton,
+                isStarting &&
+                  styles.disabled,
+              ]}
+              onPress={
+                handleStartJob
+              }
+              disabled={
+                isStarting
+              }
             >
               {isStarting ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator
+                  color="#FFFFFF"
+                />
               ) : (
-                <Text style={styles.startButtonText}>{t.startJob}</Text>
+                <Text
+                  style={
+                    styles.startButtonText
+                  }
+                >
+                  {t.startJob}
+                </Text>
               )}
             </Pressable>
           </View>
         ) : null}
 
-        {/* IN PROGRESS */}
-        {status === "in_progress" ? (
-          <View style={styles.runningCard}>
-            <Text style={styles.runningLabel}>{t.jobInProgress}</Text>
-
-            <Text style={styles.runningTimer}>
-              {formatDuration(remainingSeconds)}
+        {status ===
+        "in_progress" ? (
+          <View
+            style={
+              styles.runningCard
+            }
+          >
+            <Text
+              style={
+                styles.runningLabel
+              }
+            >
+              {t.jobInProgress}
             </Text>
 
-            <Text style={styles.runningText}>{t.remainingTime}</Text>
+            <Text
+              style={
+                styles.runningTimer
+              }
+            >
+              {formatDuration(
+                remainingSeconds,
+              )}
+            </Text>
+
+            <Text
+              style={
+                styles.runningText
+              }
+            >
+              {t.remainingTime}
+            </Text>
 
             <Pressable
-              style={[styles.completeButton, isCompleting && styles.disabled]}
-              onPress={handleComplete}
-              disabled={isCompleting}
+              style={[
+                styles.completeButton,
+                isCompleting &&
+                  styles.disabled,
+              ]}
+              onPress={
+                handleComplete
+              }
+              disabled={
+                isCompleting
+              }
             >
               {isCompleting ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator
+                  color="#FFFFFF"
+                />
               ) : (
-                <Text style={styles.completeButtonText}>{t.markCompleted}</Text>
+                <Text
+                  style={
+                    styles.completeButtonText
+                  }
+                >
+                  {t.markCompleted}
+                </Text>
               )}
             </Pressable>
           </View>
         ) : null}
 
-        {/* COMPLETED */}
-        {status === "completed" ? (
-          <View style={styles.completedCard}>
-            <Text style={styles.completedTitle}>✓ {t.completed}</Text>
+        {status ===
+        "completed" ? (
+          <View
+            style={
+              styles.completedCard
+            }
+          >
+            <Text
+              style={
+                styles.completedTitle
+              }
+            >
+              ✓ {t.completed}
+            </Text>
 
-            <Text style={styles.completedText}>{t.completedMessage}</Text>
+            <Text
+              style={
+                styles.completedText
+              }
+            >
+              {t.completedMessage}
+            </Text>
 
             <Pressable
-              style={styles.homeButton}
-              onPress={() => router.replace("/maid")}
+              style={
+                styles.homeButton
+              }
+              onPress={() =>
+                router.replace(
+                  "/maid",
+                )
+              }
             >
-              <Text style={styles.homeButtonText}>{t.goHome}</Text>
+              <Text
+                style={
+                  styles.homeButtonText
+                }
+              >
+                {t.goHome}
+              </Text>
             </Pressable>
           </View>
         ) : null}
 
-        {/* CANCELLED */}
-        {status === "cancelled" ? (
-          <View style={styles.cancelledCard}>
-            <Text style={styles.cancelledTitle}>{t.cancelled}</Text>
+        {status ===
+        "cancelled" ? (
+          <View
+            style={
+              styles.cancelledCard
+            }
+          >
+            <Text
+              style={
+                styles.cancelledTitle
+              }
+            >
+              {t.cancelled}
+            </Text>
 
-            <Text style={styles.cancelledText}>{t.cancelledMessage}</Text>
+            <Text
+              style={
+                styles.cancelledText
+              }
+            >
+              {t.cancelledMessage}
+            </Text>
 
             <Pressable
-              style={styles.homeButton}
-              onPress={() => router.replace("/maid")}
+              style={
+                styles.homeButton
+              }
+              onPress={() =>
+                router.replace(
+                  "/maid",
+                )
+              }
             >
-              <Text style={styles.homeButtonText}>{t.goHome}</Text>
+              <Text
+                style={
+                  styles.homeButtonText
+                }
+              >
+                {t.goHome}
+              </Text>
             </Pressable>
           </View>
         ) : null}
 
-        {/* NO MAID FOUND */}
-        {status === "no_maid_found" ? (
-          <View style={styles.cancelledCard}>
-            <Text style={styles.cancelledTitle}>{t.noHelpFound}</Text>
+        {status ===
+        "no_maid_found" ? (
+          <View
+            style={
+              styles.cancelledCard
+            }
+          >
+            <Text
+              style={
+                styles.cancelledTitle
+              }
+            >
+              {t.noHelpFound}
+            </Text>
 
-            <Text style={styles.cancelledText}>{t.noHelpMessage}</Text>
+            <Text
+              style={
+                styles.cancelledText
+              }
+            >
+              {t.noHelpMessage}
+            </Text>
 
             <Pressable
-              style={styles.homeButton}
-              onPress={() => router.replace("/maid")}
+              style={
+                styles.homeButton
+              }
+              onPress={() =>
+                router.replace(
+                  "/maid",
+                )
+              }
             >
-              <Text style={styles.homeButtonText}>{t.goHome}</Text>
+              <Text
+                style={
+                  styles.homeButtonText
+                }
+              >
+                {t.goHome}
+              </Text>
             </Pressable>
           </View>
         ) : null}
 
-        {/* ERROR */}
+        {status ===
+          "pending" ||
+        status ===
+          "assigned" ? (
+          <View
+            style={
+              styles.statusInfo
+            }
+          >
+            <Text
+              style={
+                styles.statusInfoText
+              }
+            >
+              {status ===
+              "assigned"
+                ? t.assigned
+                : t.loading}
+            </Text>
+          </View>
+        ) : null}
+
         {error ? (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View
+            style={
+              styles.errorCard
+            }
+          >
+            <Text
+              style={
+                styles.errorText
+              }
+            >
+              {error}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
@@ -654,13 +1269,27 @@ function DetailRow({
 }) {
   return (
     <>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>{label}</Text>
+      <View
+        style={styles.detailRow}
+      >
+        <Text
+          style={styles.detailLabel}
+        >
+          {label}
+        </Text>
 
-        <Text style={styles.detailValue}>{value}</Text>
+        <Text
+          style={styles.detailValue}
+        >
+          {value}
+        </Text>
       </View>
 
-      {!last ? <View style={styles.divider} /> : null}
+      {!last ? (
+        <View
+          style={styles.divider}
+        />
+      ) : null}
     </>
   );
 }
@@ -1000,6 +1629,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: "#756C69",
+  },
+
+  statusInfo: {
+    marginTop: 18,
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: "#EEF6F1",
+  },
+
+  statusInfoText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#1F7A4C",
+    textAlign: "center",
   },
 
   homeButton: {

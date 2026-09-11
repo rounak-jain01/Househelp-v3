@@ -58,6 +58,10 @@ export type MaidBookingRequest = {
  *
  * Path:
  * bookings/{bookingId}/maidRequests/{maidId}
+ *
+ * We use a single-field query on maidId and match
+ * the request document locally. This avoids requiring
+ * a composite Firestore index.
  */
 export function subscribeToMaidBookingRequest(
   bookingId: string,
@@ -66,8 +70,7 @@ export function subscribeToMaidBookingRequest(
   ) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
-  const user =
-    getAuth().currentUser;
+  const user = getAuth().currentUser;
 
   if (!user) {
     const error = new Error(
@@ -82,11 +85,6 @@ export function subscribeToMaidBookingRequest(
   const maidId = user.uid;
   const db = getFirestore();
 
-  /*
-   * We query the subcollection instead of using
-   * doc(), because the current RNFirebase runtime
-   * in this project does not expose doc() correctly.
-   */
   const requestsCollection = collection(
     db,
     'bookings',
@@ -96,11 +94,7 @@ export function subscribeToMaidBookingRequest(
 
   const requestQuery = query(
     requestsCollection,
-    where(
-      'maidId',
-      '==',
-      maidId,
-    ),
+    where('maidId', '==', maidId),
   );
 
   return onSnapshot(
@@ -111,9 +105,7 @@ export function subscribeToMaidBookingRequest(
         return;
       }
 
-      const requestDocument =
-        snapshot.docs[0];
-
+      const requestDocument = snapshot.docs[0];
       const data =
         requestDocument.data() as Partial<MaidBookingRequest>;
 
@@ -135,15 +127,21 @@ export function subscribeToMaidBookingRequest(
 }
 
 /**
- * Subscribe to all pending requests
- * belonging to one maid.
+ * Subscribe to pending booking requests belonging to one maid.
  *
- * This uses the Firestore collection-group
- * composite index:
+ * IMPORTANT:
+ * We intentionally query ONLY by maidId.
+ * Filtering response == "pending" is done locally.
  *
- * maidId     ASCENDING
- * response   ASCENDING
- * __name__   ASCENDING
+ * The old two-field collectionGroup query:
+ *   maidId == ...
+ *   response == "pending"
+ *
+ * requires a composite Firestore index and caused:
+ * firestore/failed-precondition
+ * "Ensure your query has been indexed..."
+ *
+ * This implementation needs only the default single-field index.
  */
 export function subscribeToPendingMaidBookingRequestIds(
   maidId: string,
@@ -152,45 +150,43 @@ export function subscribeToPendingMaidBookingRequestIds(
   ) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
+  if (!maidId) {
+    const error = new Error('Invalid maid ID.');
+    onError?.(error);
+    return () => {};
+  }
+
   const db = getFirestore();
 
   const requestsQuery = query(
-    collectionGroup(
-      db,
-      'maidRequests',
-    ),
-    where(
-      'maidId',
-      '==',
-      maidId,
-    ),
-    where(
-      'response',
-      '==',
-      'pending',
-    ),
+    collectionGroup(db, 'maidRequests'),
+    where('maidId', '==', maidId),
   );
 
   return onSnapshot(
     requestsQuery,
     (snapshot) => {
-      snapshot.docs.forEach(
-        (requestDocument) => {
-          /*
-           * bookings/{bookingId}/maidRequests/{maidId}
-           */
-          const bookingDocument =
-            requestDocument.ref.parent.parent;
+      snapshot.docs.forEach((requestDocument) => {
+        const data =
+          requestDocument.data() as Partial<MaidBookingRequest>;
 
-          if (!bookingDocument) {
-            return;
-          }
+        // Only pending requests should reach the UI.
+        if (data.response !== 'pending') {
+          return;
+        }
 
-          onRequest(
-            bookingDocument.id,
-          );
-        },
-      );
+        /*
+         * bookings/{bookingId}/maidRequests/{maidId}
+         */
+        const bookingDocument =
+          requestDocument.ref.parent.parent;
+
+        if (!bookingDocument) {
+          return;
+        }
+
+        onRequest(bookingDocument.id);
+      });
     },
     (error) => {
       console.error(
@@ -204,11 +200,10 @@ export function subscribeToPendingMaidBookingRequestIds(
 }
 
 /**
- * Accept or reject the currently logged-in
- * maid's booking request.
+ * Respond to the currently logged-in maid's booking request.
  *
- * The backend performs the actual first-accept-wins
- * transaction and booking assignment.
+ * The client writes only the response fields allowed by Firestore
+ * rules. The backend remains authoritative for first-accept-wins.
  */
 export async function respondToMaidBookingRequest(
   bookingId: string,
@@ -216,13 +211,23 @@ export async function respondToMaidBookingRequest(
     | 'accepted'
     | 'rejected',
 ): Promise<void> {
-  const user =
-    getAuth().currentUser;
+  const user = getAuth().currentUser;
 
   if (!user) {
     throw new Error(
       'Your session has expired. Please login again.',
     );
+  }
+
+  if (!bookingId) {
+    throw new Error('Invalid booking ID.');
+  }
+
+  if (
+    response !== 'accepted' &&
+    response !== 'rejected'
+  ) {
+    throw new Error('Invalid booking response.');
   }
 
   const maidId = user.uid;
@@ -237,16 +242,10 @@ export async function respondToMaidBookingRequest(
 
   const requestQuery = query(
     requestsCollection,
-    where(
-      'maidId',
-      '==',
-      maidId,
-    ),
+    where('maidId', '==', maidId),
   );
 
-  const snapshot = await getDocs(
-    requestQuery,
-  );
+  const snapshot = await getDocs(requestQuery);
 
   if (snapshot.empty) {
     throw new Error(
@@ -254,8 +253,29 @@ export async function respondToMaidBookingRequest(
     );
   }
 
-  const requestDocument =
-    snapshot.docs[0];
+  const requestDocument = snapshot.docs.find(
+    (document) => {
+      const data =
+        document.data() as Partial<MaidBookingRequest>;
+
+      return data.maidId === maidId;
+    },
+  );
+
+  if (!requestDocument) {
+    throw new Error(
+      'Booking request not found.',
+    );
+  }
+
+  const currentData =
+    requestDocument.data() as Partial<MaidBookingRequest>;
+
+  if (currentData.response !== 'pending') {
+    throw new Error(
+      'This booking request is no longer pending.',
+    );
+  }
 
   await updateDoc(
     requestDocument.ref,

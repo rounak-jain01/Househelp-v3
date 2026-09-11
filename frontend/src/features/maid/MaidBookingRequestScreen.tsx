@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -7,13 +7,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import {
-  router,
-} from 'expo-router';
-import {
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
-
+import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   collection,
   getDocs,
@@ -26,15 +21,11 @@ import {
   type MaidBookingRequest,
 } from '../../services/firebase/maidBookingRequestService';
 
-import {
-  getDateLabel,
-} from '../../services/firebase/availabilityService';
-
-import {
-  useMaidLanguage,
-} from './MaidLanguageContext';
+import { useMaidLanguage } from './MaidLanguageContext';
 
 type Language = 'en' | 'hi';
+
+const RESPONSE_WINDOW_MS = 3 * 60 * 1000;
 
 const copy = {
   en: {
@@ -55,19 +46,18 @@ const copy = {
     rejecting: 'Rejecting...',
     away: 'away',
     min: 'min',
-    expires: 'Respond within 3 minutes',
+    expires: 'Respond within',
     expired: 'This request has expired.',
     rejected: 'You rejected this request.',
     loading: 'Loading booking request...',
     unavailable: 'Booking request not found.',
-    unableToLoad:
-      'Unable to load booking request.',
-    unableToRespond:
-      'Unable to respond to this request.',
-    bookingAccepted:
-      'You got this booking.',
+    unableToLoad: 'Unable to load booking request.',
+    unableToRespond: 'Unable to respond to this request.',
+    bookingAccepted: 'You got this booking.',
     anotherHelpAccepted:
       'Another Help accepted this booking first.',
+    invalidRequest:
+      'This booking request is no longer available.',
   },
 
   hi: {
@@ -88,7 +78,7 @@ const copy = {
     rejecting: 'रिजेक्ट किया जा रहा है...',
     away: 'दूर',
     min: 'मिनट',
-    expires: '3 मिनट के अंदर जवाब दें',
+    expires: 'जवाब दें',
     expired: 'यह अनुरोध समाप्त हो गया है।',
     rejected: 'आपने यह अनुरोध रिजेक्ट कर दिया है।',
     loading: 'बुकिंग अनुरोध लोड हो रहा है...',
@@ -101,6 +91,8 @@ const copy = {
       'यह बुकिंग आपको मिली।',
     anotherHelpAccepted:
       'किसी दूसरी Help ने पहले बुकिंग स्वीकार कर ली।',
+    invalidRequest:
+      'यह बुकिंग अनुरोध अब उपलब्ध नहीं है।',
   },
 } as const;
 
@@ -116,9 +108,7 @@ function formatDateTime(
       typeof value === 'object' &&
       'toDate' in value &&
       typeof (
-        value as {
-          toDate?: unknown;
-        }
+        value as { toDate?: unknown }
       ).toDate === 'function'
     ) {
       date = (
@@ -126,14 +116,10 @@ function formatDateTime(
           toDate: () => Date;
         }
       ).toDate();
-    } else if (
-      value instanceof Date
-    ) {
+    } else if (value instanceof Date) {
       date = value;
     } else {
-      date = new Date(
-        String(value),
-      );
+      date = new Date(String(value));
     }
 
     if (Number.isNaN(date.getTime())) {
@@ -141,9 +127,7 @@ function formatDateTime(
     }
 
     return date.toLocaleString(
-      language === 'hi'
-        ? 'hi-IN'
-        : 'en-IN',
+      language === 'hi' ? 'hi-IN' : 'en-IN',
       {
         weekday: 'short',
         day: 'numeric',
@@ -157,9 +141,7 @@ function formatDateTime(
   }
 }
 
-function getInitials(
-  name: string,
-): string {
+function getInitials(name: string): string {
   const value = name.trim();
 
   if (!value) {
@@ -169,12 +151,74 @@ function getInitials(
   return value
     .split(/\s+/)
     .slice(0, 2)
-    .map(
-      (part) =>
-        part.charAt(0),
-    )
+    .map((part) => part.charAt(0))
     .join('')
     .toUpperCase();
+}
+
+function getRemainingSeconds(
+  requestExpiresAt: unknown,
+): number | null {
+  try {
+    let expiresAtMs: number;
+
+    if (
+      requestExpiresAt &&
+      typeof requestExpiresAt === 'object' &&
+      'toDate' in requestExpiresAt &&
+      typeof (
+        requestExpiresAt as { toDate?: unknown }
+      ).toDate === 'function'
+    ) {
+      expiresAtMs = (
+        requestExpiresAt as {
+          toDate: () => Date;
+        }
+      ).toDate().getTime();
+    } else if (
+      requestExpiresAt instanceof Date
+    ) {
+      expiresAtMs =
+        requestExpiresAt.getTime();
+    } else if (
+      typeof requestExpiresAt === 'string' ||
+      typeof requestExpiresAt === 'number'
+    ) {
+      expiresAtMs = new Date(
+        requestExpiresAt,
+      ).getTime();
+    } else {
+      return null;
+    }
+
+    if (!Number.isFinite(expiresAtMs)) {
+      return null;
+    }
+
+    return Math.max(
+      0,
+      Math.ceil(
+        (expiresAtMs - Date.now()) /
+          1000,
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function formatRemainingSeconds(
+  seconds: number,
+): string {
+  const minutes = Math.floor(
+    seconds / 60,
+  );
+  const remaining =
+    seconds % 60;
+
+  return `${minutes}:${String(
+    remaining,
+  ).padStart(2, '0')}`;
 }
 
 export default function MaidBookingRequestScreen({
@@ -185,9 +229,8 @@ export default function MaidBookingRequestScreen({
   const insets =
     useSafeAreaInsets();
 
-  const {
-    language,
-  } = useMaidLanguage();
+  const { language } =
+    useMaidLanguage();
 
   const [request, setRequest] =
     useState<MaidBookingRequest | null>(
@@ -203,18 +246,23 @@ export default function MaidBookingRequestScreen({
   const [error, setError] =
     useState('');
 
-  const [
-    categoryNames,
-    setCategoryNames,
-  ] = useState<Record<string, string>>(
-    {},
-  );
+  const [categoryNames, setCategoryNames] =
+    useState<Record<string, string>>(
+      {},
+    );
+
+  const [nowMs, setNowMs] =
+    useState(() => Date.now());
+
+  const responseStartedRef =
+    useRef(false);
 
   const t = copy[language];
 
   useEffect(() => {
-    if (!bookingId) {
+    if (!bookingId?.trim()) {
       setIsLoading(false);
+      setError(t.unableToLoad);
       return;
     }
 
@@ -223,17 +271,22 @@ export default function MaidBookingRequestScreen({
     const unsubscribe =
       subscribeToMaidBookingRequest(
         bookingId,
-        (
-          value: MaidBookingRequest | null,
-        ) => {
+        (value) => {
           if (!active) {
             return;
           }
 
           setRequest(value);
           setIsLoading(false);
+
+          if (
+            value?.response !==
+            'pending'
+          ) {
+            setIsResponding(false);
+          }
         },
-        (listenerError: Error) => {
+        (listenerError) => {
           if (!active) {
             return;
           }
@@ -247,18 +300,20 @@ export default function MaidBookingRequestScreen({
             listenerError.message ||
               t.unableToLoad,
           );
-
           setIsLoading(false);
         },
       );
 
-    getDocs(
-      collection(
-        getFirestore(),
-        'categories',
-      ),
-    )
-      .then((snapshot) => {
+    async function loadCategoryNames() {
+      try {
+        const snapshot =
+          await getDocs(
+            collection(
+              getFirestore(),
+              'categories',
+            ),
+          );
+
         if (!active) {
           return;
         }
@@ -274,80 +329,160 @@ export default function MaidBookingRequestScreen({
               item.data();
 
             map[item.id] =
-              String(
-                data.name ??
-                  item.id,
-              );
+              typeof data.name ===
+              'string'
+                ? data.name
+                : item.id;
           },
         );
 
         setCategoryNames(map);
-      })
-      .catch((categoryError) => {
+      } catch (categoryError) {
         console.error(
           '[MaidBookingRequest] Category load failed:',
           categoryError,
         );
-      });
+      }
+    }
+
+    void loadCategoryNames();
 
     return () => {
       active = false;
       unsubscribe();
     };
+  }, [bookingId, t.unableToLoad]);
+
+  const remainingSeconds =
+    useMemo(() => {
+      if (
+        request?.response !==
+        'pending'
+      ) {
+        return null;
+      }
+
+      return getRemainingSeconds(
+        request.requestExpiresAt,
+      );
+    }, [request, nowMs]);
+
+  useEffect(() => {
+    if (
+      request?.response !==
+      'pending'
+    ) {
+      return;
+    }
+
+    const timer =
+      setInterval(() => {
+        setNowMs(Date.now());
+      }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [request?.response]);
+
+  useEffect(() => {
+    if (
+      request?.response !==
+        'pending' ||
+      remainingSeconds !== 0 ||
+      responseStartedRef.current
+    ) {
+      return;
+    }
+
+    setError(t.invalidRequest);
   }, [
-    bookingId,
-    t.unableToLoad,
+    request?.response,
+    remainingSeconds,
+    t.invalidRequest,
   ]);
 
-  const handleResponse =
-    async (
-      response:
-        | 'accepted'
-        | 'rejected',
-    ) => {
-      if (
-        isResponding ||
-        !request
-      ) {
-        return;
+  const handleResponse = async (
+    response:
+      | 'accepted'
+      | 'rejected',
+  ) => {
+    if (
+      isResponding ||
+      !request ||
+      request.response !==
+        'pending'
+    ) {
+      return;
+    }
+
+    setError('');
+    setIsResponding(true);
+    responseStartedRef.current =
+      true;
+
+    try {
+      await respondToMaidBookingRequest(
+        request.bookingId,
+        response,
+      );
+
+      /*
+       * Do not blindly assume that writing "accepted"
+       * means this Help actually won. The backend transaction
+       * is the authority and may expire this request because
+       * another Help won concurrently.
+       *
+       * Stay on this screen briefly while the live listener
+       * receives the authoritative result.
+       */
+      if (response === 'rejected') {
+        router.back();
       }
+    } catch (responseError) {
+      console.error(
+        '[MaidBookingRequest] Response failed:',
+        responseError,
+      );
 
-      try {
-        setError('');
-        setIsResponding(true);
+      setError(
+        responseError instanceof Error
+          ? responseError.message
+          : t.unableToRespond,
+      );
 
-        await respondToMaidBookingRequest(
-          request.bookingId,
-          response,
-        );
+      setIsResponding(false);
+      responseStartedRef.current =
+        false;
+    }
+  };
 
-        if (
-          response === 'accepted'
-        ) {
-          router.replace(
-            `/maid/booking/${request.bookingId}`,
-          );
-        } else {
-          router.back();
-        }
-      } catch (
-        responseError
-      ) {
-        console.error(
-          '[MaidBookingRequest] Response failed:',
-          responseError,
-        );
+  useEffect(() => {
+    if (
+      !request ||
+      request.response ===
+        'pending'
+    ) {
+      return;
+    }
 
-        setError(
-          responseError instanceof
-            Error
-            ? responseError.message
-            : t.unableToRespond,
-        );
-      } finally {
-        setIsResponding(false);
-      }
-    };
+    if (
+      request.response ===
+      'accepted'
+    ) {
+      /*
+       * The backend has now accepted this Help's request.
+       * Replace the screen only after Firestore confirms the
+       * authoritative accepted state.
+       */
+      router.replace(
+        `/maid/booking/${request.bookingId}`,
+      );
+    }
+  }, [
+    request?.response,
+    request?.bookingId,
+  ]);
 
   if (isLoading) {
     return (
@@ -384,7 +519,8 @@ export default function MaidBookingRequestScreen({
             styles.emptyTitle
           }
         >
-          {t.unavailable}
+          {error ||
+            t.unavailable}
         </Text>
 
         <Pressable
@@ -409,6 +545,15 @@ export default function MaidBookingRequestScreen({
     );
   }
 
+  const serviceNames =
+    (request.categories ?? [])
+      .map(
+        (categoryId) =>
+          categoryNames[
+            categoryId
+          ] ?? categoryId,
+      );
+
   const travelText =
     request.distanceText &&
     request.etaText
@@ -417,17 +562,20 @@ export default function MaidBookingRequestScreen({
         request.etaText ||
         '—';
 
-  const serviceNames =
-  (request.categories ?? []).map(
-      (categoryId) =>
-        categoryNames[
-          categoryId
-        ] ?? categoryId,
-    );
-
   const isPending =
     request.response ===
     'pending';
+
+  const isExpired =
+    request.response ===
+    'expired' ||
+    (isPending &&
+      remainingSeconds === 0);
+
+  const actionBusyText =
+    isResponding
+      ? t.accepting
+      : '';
 
   return (
     <View
@@ -449,8 +597,6 @@ export default function MaidBookingRequestScreen({
           },
         ]}
       >
-        {/* HEADER */}
-
         <View
           style={
             styles.header
@@ -507,8 +653,6 @@ export default function MaidBookingRequestScreen({
           {t.subtitle}
         </Text>
 
-        {/* CUSTOMER */}
-
         <View
           style={
             styles.alertCard
@@ -553,19 +697,23 @@ export default function MaidBookingRequestScreen({
                 'Customer'}
             </Text>
 
-            {isPending ? (
+            {isPending &&
+            remainingSeconds !==
+              null ? (
               <Text
                 style={
                   styles.responseDeadline
                 }
               >
-                {t.expires}
+                {remainingSeconds > 0
+                  ? `${t.expires} ${formatRemainingSeconds(
+                      remainingSeconds,
+                    )}`
+                  : t.expired}
               </Text>
             ) : null}
           </View>
         </View>
-
-        {/* BOOKING DETAILS */}
 
         <View
           style={
@@ -628,12 +776,10 @@ export default function MaidBookingRequestScreen({
 
           <SummaryRow
             label={t.duration}
-            value={`${request.duration} hr`}
+            value={`${request.duration ?? '—'} hr`}
             icon="◴"
           />
         </View>
-
-        {/* SERVICES */}
 
         <Text
           style={
@@ -650,9 +796,9 @@ export default function MaidBookingRequestScreen({
         >
           {serviceNames.length ? (
             serviceNames.map(
-              (serviceName) => (
+              (serviceName, index) => (
                 <View
-                  key={serviceName}
+                  key={`${serviceName}-${index}`}
                   style={
                     styles.serviceTag
                   }
@@ -673,15 +819,12 @@ export default function MaidBookingRequestScreen({
                 styles.emptyServiceText
               }
             >
-              {language ===
-              'en'
+              {language === 'en'
                 ? 'No services'
                 : 'कोई सेवा नहीं'}
             </Text>
           )}
         </View>
-
-        {/* TRAVEL */}
 
         <View
           style={
@@ -725,8 +868,6 @@ export default function MaidBookingRequestScreen({
           </View>
         </View>
 
-        {/* EARNING */}
-
         <View
           style={
             styles.earningCard
@@ -745,11 +886,37 @@ export default function MaidBookingRequestScreen({
               styles.earningValue
             }
           >
-            ₹{request.totalPrice}
+            ₹
+            {typeof request.totalPrice ===
+            'number'
+              ? request.totalPrice
+              : '—'}
           </Text>
         </View>
 
-        {/* STATUS */}
+        {error ? (
+          <View
+            style={
+              styles.errorBox
+            }
+          >
+            <Text
+              style={
+                styles.errorIcon
+              }
+            >
+              ⚠
+            </Text>
+
+            <Text
+              style={
+                styles.errorText
+              }
+            >
+              {error}
+            </Text>
+          </View>
+        ) : null}
 
         {request.response ===
         'expired' ? (
@@ -799,28 +966,39 @@ export default function MaidBookingRequestScreen({
               {t.bookingAccepted}
             </Text>
           </View>
+        ) : isExpired ? (
+          <View
+            style={
+              styles.statusBox
+            }
+          >
+            <Text
+              style={
+                styles.statusText
+              }
+            >
+              {t.expired}
+            </Text>
+          </View>
         ) : (
           <>
-            {error ? (
+            {isResponding ? (
               <View
                 style={
-                  styles.errorBox
+                  styles.respondingHint
                 }
               >
-                <Text
-                  style={
-                    styles.errorIcon
-                  }
-                >
-                  ⚠
-                </Text>
+                <ActivityIndicator
+                  size="small"
+                  color="#1F7A4C"
+                />
 
                 <Text
                   style={
-                    styles.errorText
+                    styles.respondingHintText
                   }
                 >
-                  {error}
+                  {actionBusyText}
                 </Text>
               </View>
             ) : null}
@@ -941,415 +1119,397 @@ function SummaryRow({
   );
 }
 
-const styles =
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor:
-        '#F7F8F6',
-    },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F7F8F6',
+  },
 
-    content: {
-      paddingHorizontal: 20,
-    },
+  content: {
+    paddingHorizontal: 20,
+  },
 
-    loadingScreen: {
-      flex: 1,
-      backgroundColor:
-        '#F7F8F6',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-      paddingHorizontal: 24,
-    },
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: '#F7F8F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
 
-    loadingText: {
-      marginTop: 12,
-      fontSize: 14,
-      color: '#737873',
-    },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#737873',
+  },
 
-    emptyTitle: {
-      fontSize: 18,
-      fontWeight: '800',
-      color: '#111111',
-      textAlign: 'center',
-    },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111111',
+    textAlign: 'center',
+  },
 
-    backFallbackButton: {
-      marginTop: 18,
-      minWidth: 120,
-      height: 44,
-      paddingHorizontal: 18,
-      borderRadius: 13,
-      backgroundColor:
-        '#1F7A4C',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-    },
+  backFallbackButton: {
+    marginTop: 18,
+    minWidth: 120,
+    height: 44,
+    paddingHorizontal: 18,
+    borderRadius: 13,
+    backgroundColor: '#1F7A4C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-    backFallbackText: {
-      color: '#FFFFFF',
-      fontSize: 13,
-      fontWeight: '800',
-    },
+  backFallbackText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
-    header: {
-      minHeight: 50,
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
+  header: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
-    backButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor:
-        '#FFFFFF',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-      borderWidth: 1,
-      borderColor:
-        '#E3E7E4',
-    },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E3E7E4',
+  },
 
-    backIcon: {
-      fontSize: 34,
-      lineHeight: 34,
-      color: '#111111',
-      marginTop: -3,
-    },
+  backIcon: {
+    fontSize: 34,
+    lineHeight: 34,
+    color: '#111111',
+    marginTop: -3,
+  },
 
-    titleWrap: {
-      flex: 1,
-      paddingHorizontal: 12,
-    },
+  titleWrap: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
 
-    eyebrow: {
-      fontSize: 9,
-      fontWeight: '900',
-      letterSpacing: 1.2,
-      color: '#1F7A4C',
-    },
+  eyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: '#1F7A4C',
+  },
 
-    title: {
-      marginTop: 2,
-      fontSize: 20,
-      fontWeight: '800',
-      color: '#111111',
-    },
+  title: {
+    marginTop: 2,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111111',
+  },
 
-    subtitle: {
-      marginTop: 7,
-      fontSize: 13,
-      lineHeight: 19,
-      color: '#737873',
-    },
+  subtitle: {
+    marginTop: 7,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#737873',
+  },
 
-    alertCard: {
-      marginTop: 20,
-      padding: 17,
-      borderRadius: 20,
-      backgroundColor:
-        '#EEF6F1',
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
+  alertCard: {
+    marginTop: 20,
+    padding: 17,
+    borderRadius: 20,
+    backgroundColor: '#EEF6F1',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
-    customerAvatar: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      backgroundColor:
-        '#DCEFE3',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-      marginRight: 13,
-    },
+  customerAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#DCEFE3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 13,
+  },
 
-    customerAvatarText: {
-      fontSize: 15,
-      fontWeight: '900',
-      color: '#1F7A4C',
-    },
+  customerAvatarText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1F7A4C',
+  },
 
-    alertMain: {
-      flex: 1,
-    },
+  alertMain: {
+    flex: 1,
+  },
 
-    customerLabel: {
-      fontSize: 10,
-      fontWeight: '700',
-      color: '#657168',
-    },
+  customerLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#657168',
+  },
 
-    customerName: {
-      marginTop: 2,
-      fontSize: 18,
-      fontWeight: '800',
-      color: '#17201A',
-    },
+  customerName: {
+    marginTop: 2,
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#17201A',
+  },
 
-    responseDeadline: {
-      marginTop: 5,
-      fontSize: 10,
-      fontWeight: '700',
-      color: '#A05A00',
-    },
+  responseDeadline: {
+    marginTop: 5,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#A05A00',
+  },
 
-    summaryCard: {
-      marginTop: 13,
-      paddingHorizontal: 15,
-      borderRadius: 18,
-      backgroundColor:
-        '#FFFFFF',
-      borderWidth: 1,
-      borderColor:
-        '#E3E7E4',
-    },
+  summaryCard: {
+    marginTop: 13,
+    paddingHorizontal: 15,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3E7E4',
+  },
 
-    summaryRow: {
-      minHeight: 70,
-      flexDirection:
-        'row',
-      alignItems: 'center',
-    },
+  summaryRow: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
-    summaryIcon: {
-      width: 39,
-      height: 39,
-      borderRadius: 12,
-      backgroundColor:
-        '#EFF5F1',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-      marginRight: 12,
-    },
+  summaryIcon: {
+    width: 39,
+    height: 39,
+    borderRadius: 12,
+    backgroundColor: '#EFF5F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
 
-    summaryContent: {
-      flex: 1,
-    },
+  summaryContent: {
+    flex: 1,
+  },
 
-    summaryLabel: {
-      fontSize: 10,
-      color: '#858B87',
-    },
+  summaryLabel: {
+    fontSize: 10,
+    color: '#858B87',
+  },
 
-    summaryValue: {
-      marginTop: 4,
-      fontSize: 13,
-      lineHeight: 18,
-      fontWeight: '600',
-      color: '#222222',
-    },
+  summaryValue: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#222222',
+  },
 
-    separator: {
-      height: 1,
-      backgroundColor:
-        '#ECEFEC',
-    },
+  separator: {
+    height: 1,
+    backgroundColor: '#ECEFEC',
+  },
 
-    sectionTitle: {
-      marginTop: 22,
-      marginBottom: 10,
-      fontSize: 16,
-      fontWeight: '800',
-      color: '#111111',
-    },
+  sectionTitle: {
+    marginTop: 22,
+    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111111',
+  },
 
-    tagsRow: {
-      flexDirection:
-        'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
 
-    serviceTag: {
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-      borderRadius: 11,
-      backgroundColor:
-        '#EAF5EE',
-    },
+  serviceTag: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 11,
+    backgroundColor: '#EAF5EE',
+  },
 
-    serviceTagText: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: '#1F7A4C',
-    },
+  serviceTagText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F7A4C',
+  },
 
-    emptyServiceText: {
-      fontSize: 12,
-      color: '#737873',
-    },
+  emptyServiceText: {
+    fontSize: 12,
+    color: '#737873',
+  },
 
-    travelCard: {
-      marginTop: 15,
-      padding: 15,
-      borderRadius: 18,
-      backgroundColor:
-        '#FFFFFF',
-      borderWidth: 1,
-      borderColor:
-        '#E3E7E4',
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
+  travelCard: {
+    marginTop: 15,
+    padding: 15,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3E7E4',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
-    travelIconCircle: {
-      width: 43,
-      height: 43,
-      borderRadius: 21,
-      backgroundColor:
-        '#EEF6F1',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-      marginRight: 11,
-    },
+  travelIconCircle: {
+    width: 43,
+    height: 43,
+    borderRadius: 21,
+    backgroundColor: '#EEF6F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
 
-    travelIcon: {
-      fontSize: 20,
-      color: '#1F7A4C',
-    },
+  travelIcon: {
+    fontSize: 20,
+    color: '#1F7A4C',
+  },
 
-    travelContent: {
-      flex: 1,
-    },
+  travelContent: {
+    flex: 1,
+  },
 
-    travelLabel: {
-      fontSize: 10,
-      color: '#858B87',
-      fontWeight: '700',
-    },
+  travelLabel: {
+    fontSize: 10,
+    color: '#858B87',
+    fontWeight: '700',
+  },
 
-    travelValue: {
-      marginTop: 3,
-      fontSize: 15,
-      fontWeight: '800',
-      color: '#222222',
-    },
+  travelValue: {
+    marginTop: 3,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#222222',
+  },
 
-    earningCard: {
-      marginTop: 10,
-      paddingHorizontal: 16,
-      paddingVertical: 15,
-      borderRadius: 18,
-      backgroundColor:
-        '#EAF5EE',
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent:
-        'space-between',
-    },
+  earningCard: {
+    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 18,
+    backgroundColor: '#EAF5EE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
 
-    earningLabel: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: '#55705F',
-    },
+  earningLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#55705F',
+  },
 
-    earningValue: {
-      fontSize: 22,
-      fontWeight: '900',
-      color: '#1F7A4C',
-    },
+  earningValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#1F7A4C',
+  },
 
-    statusBox: {
-      marginTop: 16,
-      padding: 14,
-      borderRadius: 14,
-      backgroundColor:
-        '#FFF5E8',
-    },
+  statusBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#FFF5E8',
+  },
 
-    successStatusBox: {
-      backgroundColor:
-        '#EAF5EE',
-    },
+  successStatusBox: {
+    backgroundColor: '#EAF5EE',
+  },
 
-    statusText: {
-      fontSize: 12,
-      lineHeight: 18,
-      color: '#8B5600',
-      fontWeight: '700',
-      textAlign: 'center',
-    },
+  statusText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#8B5600',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 
-    successStatusText: {
-      color: '#1F7A4C',
-    },
+  successStatusText: {
+    color: '#1F7A4C',
+  },
 
-    errorBox: {
-      marginTop: 15,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: 12,
-      backgroundColor:
-        '#FFF4F2',
-      flexDirection:
-        'row',
-      alignItems: 'center',
-    },
+  respondingHint: {
+    marginTop: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#EEF6F1',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
 
-    errorIcon: {
-      marginRight: 8,
-      fontSize: 15,
-      color: '#B42318',
-    },
+  respondingHintText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F7A4C',
+  },
 
-    errorText: {
-      flex: 1,
-      fontSize: 12,
-      lineHeight: 17,
-      color: '#B42318',
-    },
+  errorBox: {
+    marginTop: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#FFF4F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
-    actions: {
-      marginTop: 20,
-      flexDirection:
-        'row',
-      gap: 10,
-    },
+  errorIcon: {
+    marginRight: 8,
+    fontSize: 15,
+    color: '#B42318',
+  },
 
-    rejectButton: {
-      flex: 0.8,
-      height: 56,
-      borderRadius: 17,
-      backgroundColor:
-        '#FFF2F0',
-      borderWidth: 1,
-      borderColor:
-        '#F0C8C3',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-    },
+  errorText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#B42318',
+  },
 
-    rejectText: {
-      fontSize: 15,
-      fontWeight: '800',
-      color: '#B42318',
-    },
+  actions: {
+    marginTop: 20,
+    flexDirection: 'row',
+    gap: 10,
+  },
 
-    acceptButton: {
-      flex: 1.2,
-      height: 56,
-      borderRadius: 17,
-      backgroundColor:
-        '#1F7A4C',
-      alignItems: 'center',
-      justifyContent:
-        'center',
-    },
+  rejectButton: {
+    flex: 0.8,
+    height: 56,
+    borderRadius: 17,
+    backgroundColor: '#FFF2F0',
+    borderWidth: 1,
+    borderColor: '#F0C8C3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-    acceptText: {
-      fontSize: 15,
-      fontWeight: '900',
-      color: '#FFFFFF',
-    },
-  });
+  rejectText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#B42318',
+  },
+
+  acceptButton: {
+    flex: 1.2,
+    height: 56,
+    borderRadius: 17,
+    backgroundColor: '#1F7A4C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  acceptText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+});

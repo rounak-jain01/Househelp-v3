@@ -3,13 +3,14 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
   getFirestore,
   onSnapshot,
-  serverTimestamp,
-  setDoc,
   Timestamp,
 } from '@react-native-firebase/firestore';
+import {
+  getFunctions,
+  httpsCallable,
+} from '@react-native-firebase/functions';
 
 export type BookingStatus =
   | 'pending'
@@ -19,12 +20,6 @@ export type BookingStatus =
   | 'completed'
   | 'cancelled'
   | 'no_maid_found';
-
-export type BookingCategory = {
-  id: string;
-  name?: string;
-  ratePerHour: number;
-};
 
 export type CreateBookingParams = {
   categoryIds: string[];
@@ -43,7 +38,7 @@ export type BookingDocument = {
   maidId?: string | null;
   categories: string[];
   duration: number;
-  scheduledDateTime?: any;
+  scheduledDateTime?: unknown;
   status: BookingStatus;
   customerName?: string;
   customerAddress?: {
@@ -53,13 +48,13 @@ export type BookingDocument = {
     longitude?: number | null;
   };
   totalPrice: number;
-  createdAt?: any;
-  updatedAt?: any;
-  assignedAt?: any;
-  respondedAt?: any;
-  startedAt?: any;
-  completedAt?: any;
-  cancelledAt?: any;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  assignedAt?: unknown;
+  respondedAt?: unknown;
+  startedAt?: unknown;
+  completedAt?: unknown;
+  cancelledAt?: unknown;
   offeredMaidIds?: string[];
   maidResponses?: Record<string, string>;
   winningMaidId?: string | null;
@@ -68,8 +63,12 @@ export type BookingDocument = {
   cancelledBy?: string | null;
 };
 
+const FUNCTIONS_REGION =
+  'asia-south1';
+
 function getCurrentUserId(): string {
-  const user = getAuth().currentUser;
+  const user =
+    getAuth().currentUser;
 
   if (!user) {
     throw new Error(
@@ -80,24 +79,61 @@ function getCurrentUserId(): string {
   return user.uid;
 }
 
-function validateCategories(categoryIds: string[]): void {
-  if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
-    throw new Error('Please select at least one service.');
+function validateCategories(
+  categoryIds: string[],
+): string[] {
+  if (
+    !Array.isArray(categoryIds) ||
+    categoryIds.length === 0
+  ) {
+    throw new Error(
+      'Please select at least one service.',
+    );
   }
 
   if (categoryIds.length > 10) {
-    throw new Error('Please select fewer services.');
-  }
-
-  if (new Set(categoryIds).size !== categoryIds.length) {
     throw new Error(
-      'Invalid service selection. Please try again.',
+      'Please select fewer services.',
     );
   }
+
+  const normalized =
+    categoryIds.map((id) =>
+      typeof id === 'string'
+        ? id.trim()
+        : '',
+    );
+
+  if (
+    normalized.some(
+      (id) => !id,
+    )
+  ) {
+    throw new Error(
+      'Invalid service selection.',
+    );
+  }
+
+  if (
+    new Set(normalized).size !==
+    normalized.length
+  ) {
+    throw new Error(
+      'Duplicate services are not allowed.',
+    );
+  }
+
+  return normalized;
 }
 
-function validateDuration(duration: number): void {
-  if (![1, 2, 3, 4].includes(duration)) {
+function validateDuration(
+  duration: number,
+): void {
+  if (
+    ![1, 2, 3, 4].includes(
+      duration,
+    )
+  ) {
     throw new Error(
       'Please choose a duration between 1 and 4 hours.',
     );
@@ -107,25 +143,21 @@ function validateDuration(duration: number): void {
 function validateScheduledDateTime(
   scheduledDateTime: Date,
 ): void {
-  if (!(scheduledDateTime instanceof Date)) {
+  if (
+    !(scheduledDateTime instanceof Date) ||
+    Number.isNaN(
+      scheduledDateTime.getTime(),
+    )
+  ) {
     throw new Error(
       'Please choose a valid date and time.',
     );
   }
-
-  if (Number.isNaN(scheduledDateTime.getTime())) {
-    throw new Error(
-      'Please choose a valid date and time.',
-    );
-  }
-
-  const minimumBookingTime = new Date(
-    Date.now() + 2 * 60 * 60 * 1000,
-  );
 
   if (
     scheduledDateTime.getTime() <
-    minimumBookingTime.getTime()
+    Date.now() +
+      2 * 60 * 60 * 1000
   ) {
     throw new Error(
       'Please choose a time at least 2 hours from now.',
@@ -133,86 +165,87 @@ function validateScheduledDateTime(
   }
 }
 
-async function getSelectedCategories(
-  categoryIds: string[],
-): Promise<BookingCategory[]> {
-  const firestore = getFirestore();
+function generateClientRequestId(): string {
+  const randomPart = Math.random()
+    .toString(36)
+    .slice(2, 12);
 
-  const snapshot = await getDocs(
-    collection(firestore, 'categories'),
+  return `b_${Date.now().toString(36)}_${randomPart}`;
+}
+
+function getRegionalFunctions() {
+  return getFunctions(
+    undefined,
+    FUNCTIONS_REGION,
+  );
+}
+
+export async function createBooking(
+  params: CreateBookingParams,
+): Promise<CreatedBooking> {
+  validateCategories(
+    params.categoryIds,
   );
 
-  const availableCategories = snapshot.docs.map(
-    (categoryDocument) =>
-      ({
-        id: categoryDocument.id,
-        ...categoryDocument.data(),
-      }) as BookingCategory,
+  const categoryIds =
+    validateCategories(
+      params.categoryIds,
+    );
+
+  validateDuration(
+    params.duration,
   );
 
-  const selectedCategories = categoryIds
-    .map((categoryId) =>
-      availableCategories.find(
-        (category) => category.id === categoryId,
-      ),
-    )
-    .filter(
-      (category): category is BookingCategory =>
-        Boolean(category),
-    );
+  validateScheduledDateTime(
+    params.scheduledDateTime,
+  );
 
-  if (
-    selectedCategories.length !== categoryIds.length
-  ) {
-    throw new Error(
-      'One or more selected services are currently unavailable.',
-    );
-  }
-
-  for (const category of selectedCategories) {
-    if (
-      typeof category.ratePerHour !== 'number' ||
-      !Number.isFinite(category.ratePerHour) ||
-      category.ratePerHour <= 0
-    ) {
-      throw new Error(
-        'A selected service has invalid pricing.',
-      );
+  const callable = httpsCallable<
+    {
+      bookingId: string;
+      categoryIds: string[];
+      duration: number;
+      scheduledDateTime: string;
+    },
+    {
+      bookingId: string;
+      totalPrice: number;
+      created: boolean;
     }
-  }
-
-  return selectedCategories;
-}
-
-function calculateTotalPrice(
-  categories: BookingCategory[],
-  duration: number,
-): number {
-  const total = categories.reduce(
-    (sum, category) =>
-      sum + category.ratePerHour * duration,
-    0,
+  >(
+    getRegionalFunctions(),
+    'createBooking',
   );
 
-  if (!Number.isFinite(total) || total <= 0) {
-    throw new Error(
-      'Unable to calculate the booking price.',
+  const result = await callable({
+    bookingId:
+      generateClientRequestId(),
+    categoryIds,
+    duration: params.duration,
+    scheduledDateTime:
+      params.scheduledDateTime.toISOString(),
+  });
+
+  return {
+    bookingId:
+      result.data.bookingId,
+    totalPrice:
+      result.data.totalPrice,
+  };
+}
+
+export async function getCustomerProfileSummary() {
+  const userId =
+    getCurrentUserId();
+
+  const snapshot =
+    await getDoc(
+      doc(
+        getFirestore(),
+        'users',
+        userId,
+      ),
     );
-  }
-
-  return total;
-}
-
-async function getCustomerProfile(userId: string) {
-  const firestore = getFirestore();
-
-  const userRef = doc(
-    firestore,
-    'users',
-    userId,
-  );
-
-  const snapshot = await getDoc(userRef);
 
   if (!snapshot.exists()) {
     throw new Error(
@@ -227,27 +260,14 @@ async function getCustomerProfile(userId: string) {
       ? data.name.trim()
       : '';
 
-  const address = data.address ?? {};
+  const address =
+    data.address ??
+    {};
 
-  const formattedAddress =
+  const formatted =
     typeof address.formatted === 'string'
       ? address.formatted.trim()
       : '';
-
-  const landmark =
-    typeof address.landmark === 'string'
-      ? address.landmark.trim()
-      : '';
-
-  const latitude =
-    typeof address.latitude === 'number'
-      ? address.latitude
-      : null;
-
-  const longitude =
-    typeof address.longitude === 'number'
-      ? address.longitude
-      : null;
 
   if (!name) {
     throw new Error(
@@ -255,7 +275,7 @@ async function getCustomerProfile(userId: string) {
     );
   }
 
-  if (!formattedAddress) {
+  if (!formatted) {
     throw new Error(
       'Please add your service address before booking.',
     );
@@ -263,133 +283,41 @@ async function getCustomerProfile(userId: string) {
 
   return {
     name,
-    address: {
-      formatted: formattedAddress,
-      landmark,
-      latitude,
-      longitude,
-    },
+    address,
   };
 }
 
-export async function createBooking(
-  params: CreateBookingParams,
-): Promise<CreatedBooking> {
-  const userId = getCurrentUserId();
-
-  validateCategories(params.categoryIds);
-  validateDuration(params.duration);
-  validateScheduledDateTime(
-    params.scheduledDateTime,
-  );
-
-  const customer = await getCustomerProfile(userId);
-
-  const selectedCategories =
-    await getSelectedCategories(
-      params.categoryIds,
-    );
-
-  const totalPrice = calculateTotalPrice(
-    selectedCategories,
-    params.duration,
-  );
-
-  const firestore = getFirestore();
-
-  const bookingRef = doc(
-    collection(firestore, 'bookings'),
-  );
-
-  await setDoc(bookingRef, {
-    customerId: userId,
-
-    maidId: null,
-
-    categories: selectedCategories.map(
-      (category) => category.id,
-    ),
-
-    duration: params.duration,
-
-    scheduledDateTime: Timestamp.fromDate(
-      params.scheduledDateTime,
-    ),
-
-    status: 'pending' as BookingStatus,
-
-    customerName: customer.name,
-
-    customerAddress: {
-      formatted: customer.address.formatted,
-      landmark: customer.address.landmark,
-      latitude: customer.address.latitude,
-      longitude: customer.address.longitude,
-    },
-
-    totalPrice,
-
-    offeredMaidIds: [],
-
-    maidResponses: {},
-
-    winningMaidId: null,
-
-    assignedAt: null,
-
-    respondedAt: null,
-
-    startedAt: null,
-
-    completedAt: null,
-
-    cancelledAt: null,
-
-    cancellationReason: null,
-
-    cancelledBy: null,
-
-    assignmentError: null,
-
-    createdAt: serverTimestamp(),
-
-    updatedAt: serverTimestamp(),
-  });
-
-  console.log(
-    '[BookingService] Booking created:',
-    bookingRef.id,
-  );
-
-  return {
-    bookingId: bookingRef.id,
-    totalPrice,
-  };
-}
-
-/**
- * Listen to one customer's booking in real time.
- *
- * This is used by the waiting/status screen.
- */
 export function subscribeToBooking(
   bookingId: string,
-  onBooking: (booking: BookingDocument | null) => void,
-  onError?: (error: Error) => void,
+  onBooking: (
+    booking:
+      | BookingDocument
+      | null,
+  ) => void,
+  onError?: (
+    error: Error,
+  ) => void,
 ) {
+  if (!bookingId) {
+    const error =
+      new Error(
+        'Booking ID is missing.',
+      );
+
+    onError?.(error);
+    return () => {};
+  }
+
   try {
-    if (!bookingId) {
-      throw new Error('Booking ID is missing.');
-    }
+    const userId =
+      getCurrentUserId();
 
-    const userId = getCurrentUserId();
-    const firestore = getFirestore();
-
-    const bookingRef = doc(
-      firestore,
-      'bookings',
-      bookingId,
-    );
+    const bookingRef =
+      doc(
+        getFirestore(),
+        'bookings',
+        bookingId,
+      );
 
     return onSnapshot(
       bookingRef,
@@ -399,13 +327,13 @@ export function subscribeToBooking(
           return;
         }
 
-        const data = snapshot.data();
+        const data =
+          snapshot.data();
 
-        /**
-         * Safety check:
-         * Customer should only see their own booking.
-         */
-        if (data.customerId !== userId) {
+        if (
+          data.customerId !==
+          userId
+        ) {
           onError?.(
             new Error(
               'You do not have access to this booking.',
@@ -415,7 +343,8 @@ export function subscribeToBooking(
         }
 
         onBooking({
-          bookingId: snapshot.id,
+          bookingId:
+            snapshot.id,
           ...data,
         } as BookingDocument);
       },
@@ -429,15 +358,14 @@ export function subscribeToBooking(
       },
     );
   } catch (error) {
-    const normalizedError =
+    const normalized =
       error instanceof Error
         ? error
         : new Error(
             'Unable to load booking.',
           );
 
-    onError?.(normalizedError);
-
+    onError?.(normalized);
     return () => {};
   }
 }

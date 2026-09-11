@@ -1,6 +1,7 @@
 import {
   collection,
   collectionGroup,
+  doc,
   getFirestore,
   onSnapshot,
   query,
@@ -49,45 +50,40 @@ function getRegionalFunctions() {
  */
 export function subscribeToCustomerStartOtp(
   bookingId: string,
-  onOtp: (
-    value: CustomerStartOtp | null,
-  ) => void,
+  onOtp: (value: CustomerStartOtp | null) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
   const db = getFirestore();
 
-  const secretCollection = collection(
+  if (!bookingId) {
+    const error = new Error("Invalid booking ID.");
+    onError?.(error);
+    return () => {};
+  }
+
+  const otpRef = doc(
     db,
     "bookings",
     bookingId,
     "customerSecrets",
-  );
-
-  const otpQuery = query(
-    secretCollection,
-    where(
-      "type",
-      "==",
-      "start_otp",
-    ),
+    "startOtp",
   );
 
   return onSnapshot(
-    otpQuery,
+    otpRef,
     (snapshot) => {
-      if (snapshot.empty) {
+      if (!snapshot.exists()) {
         onOtp(null);
         return;
       }
 
-      const data =
-        snapshot.docs[0].data() as {
-          otp?: unknown;
-          usedAt?: unknown;
-        };
+      const data = snapshot.data() as {
+        otp?: unknown;
+        usedAt?: unknown;
+      };
 
       if (
-        typeof data.otp !== "string" ||
+        typeof data?.otp !== "string" ||
         !/^\d{6}$/.test(data.otp)
       ) {
         onOtp(null);
