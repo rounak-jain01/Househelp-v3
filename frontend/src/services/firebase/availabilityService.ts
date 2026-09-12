@@ -140,31 +140,21 @@ export function getEffectiveAvailability(
     override?.expiresAt,
   );
 
-  const overrideExpired =
-    expiryDate !== null &&
-    expiryDate <= now;
+  const overrideActive =
+    override?.mode != null &&
+    (
+      expiryDate === null ||
+      expiryDate > now
+    );
 
-  if (override?.mode === 'on') {
-    if (overrideExpired) {
-      return false;
-    }
-
-    return true;
+  // Manual preference always wins while active.
+  if (overrideActive) {
+    return override!.mode === 'on';
   }
 
-  if (override?.mode === 'off') {
-    if (overrideExpired) {
-      return false;
-    }
-
-    return false;
-  }
-
+  // Otherwise follow the scheduled availability.
   return slots.some((slot) =>
-    isWithinAvailabilitySlot(
-      slot,
-      now,
-    ),
+    isWithinAvailabilitySlot(slot, now),
   );
 }
 
@@ -250,7 +240,9 @@ export async function setMaidAvailabilityOverride(
               expiresAt ?? null,
           }
         : null,
-      updatedAt: serverTimestamp(),
+
+      updatedAt:
+        serverTimestamp(),
     },
   );
 }

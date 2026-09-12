@@ -246,7 +246,7 @@ export default function MaidHomeScreen() {
   const insets = useSafeAreaInsets();
 
   const auth = getAuth();
-  const user = auth.currentUser;
+  const [user, setUser] = useState(() => auth.currentUser);
 
   const {
     language,
@@ -284,6 +284,23 @@ export default function MaidHomeScreen() {
   /**
    * Realtime maid profile.
    */
+
+  useEffect(() => {
+  const unsubscribe = auth.onAuthStateChanged((nextUser) => {
+    setUser(nextUser);
+
+    if (!nextUser) {
+      setProfile(null);
+      setActiveBooking(null);
+      setIsLoading(false);
+      setError('');
+    }
+  });
+
+  return unsubscribe;
+}, [auth]);
+
+
   useEffect(() => {
     if (!user?.uid) {
       setProfile(null);
@@ -334,48 +351,57 @@ export default function MaidHomeScreen() {
    * Load categories.
    */
   useEffect(() => {
-    let cancelled = false;
+  if (!user?.uid) {
+    setCategories([]);
+    return;
+  }
 
-    const loadCategories = async () => {
-      try {
-        const db = getFirestore();
+  let cancelled = false;
 
-        const snapshot = await getDocs(
-          collection(db, 'categories'),
-        );
+  const loadCategories = async () => {
+    try {
+      const db = getFirestore();
 
-        if (cancelled) {
-          return;
-        }
+      const snapshot = await getDocs(
+        collection(db, 'categories'),
+      );
 
-        const loadedCategories: Category[] =
-          snapshot.docs.map((categoryDoc) => {
-            const data = categoryDoc.data();
-
-            return {
-              id: categoryDoc.id,
-              name:
-                typeof data.name === 'string'
-                  ? data.name
-                  : categoryDoc.id,
-            };
-          });
-
-        setCategories(loadedCategories);
-      } catch (categoryError) {
-        console.error(
-          '[MaidHome] Categories load failed:',
-          categoryError,
-        );
+      if (cancelled) {
+        return;
       }
-    };
 
-    loadCategories();
+      const loadedCategories: Category[] =
+        snapshot.docs.map((categoryDoc) => {
+          const data = categoryDoc.data();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+          return {
+            id: categoryDoc.id,
+            name:
+              typeof data.name === 'string'
+                ? data.name
+                : categoryDoc.id,
+          };
+        });
+
+      setCategories(loadedCategories);
+    } catch (categoryError) {
+      if (cancelled) {
+        return;
+      }
+
+      console.error(
+        '[MaidHome] Categories load failed:',
+        categoryError,
+      );
+    }
+  };
+
+  loadCategories();
+
+  return () => {
+    cancelled = true;
+  };
+}, [user?.uid]);
 
   /**
    * Re-evaluate availability every minute.
@@ -400,48 +426,6 @@ export default function MaidHomeScreen() {
         now,
       )
     : false;
-
-  /**
-   * Keep stored availability aligned with calculated availability.
-   */
-  useEffect(() => {
-    if (!user || !profile) {
-      return;
-    }
-
-    const effective =
-      getEffectiveAvailability(
-        profile.availabilitySlots ?? [],
-        profile.availabilityOverride ?? null,
-        now,
-      );
-
-    if (profile.isAvailableNow === effective) {
-      return;
-    }
-
-    updateDoc(
-      doc(
-        getFirestore(),
-        'maids',
-        user.uid,
-      ),
-      {
-        isAvailableNow: effective,
-      },
-    ).catch((updateError) => {
-      console.error(
-        '[MaidHome] Automatic availability sync failed:',
-        updateError,
-      );
-    });
-  }, [
-    user?.uid,
-    profile?.availabilitySlots,
-    profile?.availabilityOverride,
-    profile?.isAvailableNow,
-    now,
-  ]);
 
   /**
    * Start location tracking ONLY while the maid is available.

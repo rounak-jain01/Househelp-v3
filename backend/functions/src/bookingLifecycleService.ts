@@ -68,7 +68,19 @@ type Booking = {
   approvedExtraMinutes?: number | null;
   totalDurationMinutes?: number | null;
   extraTimeRequestedAt?: Timestamp | null;
+  billing?: BillingSummary | null;
+  paymentStatus?: "pending" | "received";
+  paymentMethod?: "cash" | "upi" | null;
   extraTimeRespondedAt?: Timestamp | null;
+};
+
+type BillingSummary = {
+  baseAmount: number;
+  extraTimeMinutes: number;
+  extraTimeAmount: number;
+  totalAmount: number;
+  currency: "INR";
+  generatedAt: Timestamp;
 };
 
 type MaidRequest = {
@@ -107,6 +119,44 @@ function timestampToDate(
 
 function getAssignedMaidId(booking: Booking): string | null {
   return booking.maidId ?? booking.winningMaidId ?? null;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function buildBillingSummary(booking: Booking): BillingSummary {
+  const baseAmount = Number(booking.totalPrice ?? 0);
+  const durationHours = Number(booking.duration ?? 0);
+  const extraTimeMinutes = Math.max(
+    0,
+    Number(booking.approvedExtraMinutes ?? 0),
+  );
+
+  if (
+    !Number.isFinite(baseAmount) ||
+    baseAmount <= 0 ||
+    !Number.isFinite(durationHours) ||
+    durationHours <= 0
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Booking pricing information is unavailable.",
+    );
+  }
+
+  const extraTimeAmount = roundMoney(
+    (baseAmount / (durationHours * 60)) * extraTimeMinutes,
+  );
+
+  return {
+    baseAmount: roundMoney(baseAmount),
+    extraTimeMinutes,
+    extraTimeAmount,
+    totalAmount: roundMoney(baseAmount + extraTimeAmount),
+    currency: "INR",
+    generatedAt: Timestamp.now(),
+  };
 }
 
 async function sendPush(
@@ -635,9 +685,15 @@ export const completeBooking = onCall(
         );
       }
 
+      const existingBilling = booking.billing ?? null;
+      const billing = existingBilling ?? buildBillingSummary(booking);
+
       transaction.update(bookingRef, {
         status: "completed",
         completedAt: FieldValue.serverTimestamp(),
+        billing,
+        paymentStatus: booking.paymentStatus ?? "pending",
+        paymentMethod: booking.paymentMethod ?? null,
         updatedAt: FieldValue.serverTimestamp(),
       });
 
@@ -653,7 +709,7 @@ export const completeBooking = onCall(
         });
       }
 
-      return { customerId: booking.customerId ?? null };
+      return { customerId: booking.customerId ?? null, billing };
     });
 
     if (result.customerId) {
@@ -662,7 +718,7 @@ export const completeBooking = onCall(
         result.customerId,
         "booking_completed",
         "Booking completed",
-        "Your HomeHelp booking has been completed.",
+        "Your HomeHelp booking has been completed. Your bill is ready.",
         bookingId,
       );
     }

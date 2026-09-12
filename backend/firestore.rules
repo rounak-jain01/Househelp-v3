@@ -3,10 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    /* =========================================================
-     * AUTH HELPERS
-     * ========================================================= */
-
     function isSignedIn() {
       return request.auth != null;
     }
@@ -37,31 +33,29 @@ service cloud.firestore {
         || request.resource.data.response == 'rejected';
     }
 
-
-    /* =========================================================
-     * CUSTOMER / USER PROFILE
-     * users/{userId}
-     * ========================================================= */
-
     match /users/{userId} {
-      /*
-       * Customer can only access their own profile.
-       * Backend/Admin SDK is unaffected by these rules.
-       */
       allow read: if isOwner(userId);
 
       allow create: if isOwner(userId)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.role == 'customer'
         && request.resource.data.keys().hasOnly([
           'userId',
           'role',
           'phoneNumber',
           'name',
+          'gender',
+          'photoUrl',
           'address',
           'createdAt',
-          'updatedAt'
+          'updatedAt',
+          'fcmTokens'
         ]);
 
       allow update: if isOwner(userId)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.role == 'customer'
         && request.resource.data.diff(resource.data)
           .affectedKeys()
           .hasOnly([
@@ -69,25 +63,16 @@ service cloud.firestore {
             'role',
             'phoneNumber',
             'name',
+            'gender',
+            'photoUrl',
             'address',
-            'updatedAt'
+            'createdAt',
+            'updatedAt',
+            'fcmTokens'
           ]);
 
       allow delete: if false;
     }
-
-
-    /* =========================================================
-     * HELP / MAID PROFILE
-     * maids/{maidId}
-     *
-     * Pilot behavior:
-     * - Verification is intentionally skipped.
-     * - Onboarding creates the Help as "verified".
-     * - Help starts with isAvailableNow == false.
-     * - Only the owner can read the profile.
-     * - Backend/Admin SDK can read all maid documents.
-     * ========================================================= */
 
     match /maids/{maidId} {
       allow read: if isOwner(maidId);
@@ -116,6 +101,8 @@ service cloud.firestore {
           'isAvailableNow',
           'availabilitySlots',
           'availabilityOverride',
+          'currentLocation',
+          'lastAssignedAt',
           'fcmTokens',
           'createdAt',
           'updatedAt'
@@ -124,10 +111,6 @@ service cloud.firestore {
       allow update: if isOwner(maidId)
         && request.resource.data.maidId == request.auth.uid
         && request.resource.data.role == 'maid'
-        /*
-         * The client must never be able to change verification
-         * status. Backend/Admin controls that field.
-         */
         && request.resource.data.verificationStatus == resource.data.verificationStatus
         && request.resource.data.diff(resource.data)
           .affectedKeys()
@@ -148,6 +131,7 @@ service cloud.firestore {
             'availabilityOverride',
             'isAvailableNow',
             'currentLocation',
+            'lastAssignedAt',
             'fcmTokens',
             'updatedAt'
           ]);
@@ -155,44 +139,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-
-    /* =========================================================
-     * CATEGORIES
-     * categories/{categoryId}
-     * ========================================================= */
-
     match /categories/{categoryId} {
-      /*
-       * Signed-in users can read service/category/pricing data.
-       * Clients cannot modify pricing or category definitions.
-       */
       allow read: if isSignedIn();
       allow create, update, delete: if false;
     }
 
-
-    /* =========================================================
-     * BOOKINGS
-     * bookings/{bookingId}
-     *
-     * Booking creation and all lifecycle mutations are backend-only.
-     * Client only receives participant-scoped read access.
-     * ========================================================= */
-
     match /bookings/{bookingId} {
       allow create: if false;
-
-      allow read: if isBookingParticipant();
-
       allow update, delete: if false;
-
-
-      /* =======================================================
-       * MAID BOOKING REQUEST
-       * bookings/{bookingId}/maidRequests/{maidId}
-       *
-       * The Help may read/respond only to their own request.
-       * ======================================================= */
+      allow read: if isBookingParticipant();
 
       match /maidRequests/{requestMaidId} {
         allow read: if isSignedIn()
@@ -216,37 +171,11 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-
-      /* =======================================================
-       * CUSTOMER START OTP
-       * bookings/{bookingId}/customerSecrets/{secretId}
-       *
-       * Plaintext OTP is customer-only.
-       * Client cannot create/update/delete it.
-       * Backend/Admin SDK writes it.
-       * ======================================================= */
-
       match /customerSecrets/{secretId} {
         allow read: if isCustomerForBooking(bookingId);
-
         allow create, update, delete: if false;
       }
     }
-
-
-    /* =========================================================
-     * COLLECTION-GROUP ACCESS FOR maidRequests
-     *
-     * Required by the Help app listener:
-     *
-     * collectionGroup("maidRequests")
-     *   .where("maidId", "==", currentUid)
-     *   .where("response", "==", "pending")
-     *
-     * Important:
-     * Do NOT require requestMaidId == request.auth.uid here.
-     * The query is authorized using the stored maidId field.
-     * ========================================================= */
 
     match /{path=**}/maidRequests/{requestMaidId} {
       allow read: if isSignedIn()
@@ -269,11 +198,6 @@ service cloud.firestore {
 
       allow delete: if false;
     }
-
-
-    /* =========================================================
-     * DEFAULT DENY
-     * ========================================================= */
 
     match /{document=**} {
       allow read, write: if false;

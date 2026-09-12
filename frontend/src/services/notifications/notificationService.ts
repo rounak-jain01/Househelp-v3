@@ -157,34 +157,47 @@ export async function registerFcmToken(
 }
 
 export async function removeFcmToken(
-  collectionName: 'users' | 'maids',
   uid: string,
-  token?: string,
+  token: string,
+  role: 'customer' | 'maid',
 ): Promise<void> {
-  if (!uid) {
+  const normalizedUid = uid.trim();
+  const normalizedToken = token.trim();
+
+  if (!normalizedUid || !normalizedToken) {
     return;
   }
 
   try {
-    const tokenToRemove =
-      token ?? (await getToken(getMessaging()));
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
 
-    if (!tokenToRemove) {
+    if (!currentUser || currentUser.uid !== normalizedUid) {
+      console.warn(
+        `[Notifications] Skipping FCM token removal because auth user changed: ${normalizedUid}`,
+      );
       return;
     }
+
+    const collectionName =
+      role === 'maid' ? 'maids' : 'users';
 
     await updateDoc(
       doc(
         getFirestore(),
         collectionName,
-        uid,
+        normalizedUid,
       ),
       {
-        fcmTokens: arrayRemove(tokenToRemove),
+        fcmTokens: arrayRemove(normalizedToken),
       },
     );
+
+    console.log(
+      `[Notifications] FCM token removed from ${collectionName}/${normalizedUid}`,
+    );
   } catch (error) {
-    console.error(
+    console.warn(
       '[Notifications] Failed to remove FCM token:',
       error,
     );
@@ -205,6 +218,12 @@ export function subscribeToFcmTokenRefresh(
       }
 
       try {
+        const currentUser = getAuth().currentUser;
+
+        if (!currentUser || currentUser.uid !== uid) {
+          return;
+        }
+
         await updateDoc(
           doc(
             getFirestore(),

@@ -1,27 +1,123 @@
-import { useState } from 'react';
+import React, { useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  PanResponder,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+  useWindowDimensions,
+} from "react-native";
+import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type UserRole = 'user' | 'maid';
+type UserRole = "user" | "maid";
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max);
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const { width, height } = useWindowDimensions();
 
-  const handleContinue = () => {
-    if (!selectedRole) return;
+  const [selectedRole, setSelectedRole] =
+    useState<UserRole | null>(null);
+  const [sliderWidth, setSliderWidth] = useState(0);
+
+  const thumbX = useRef(new Animated.Value(0)).current;
+  const startX = useRef(0);
+  const selectedRoleRef = useRef<UserRole | null>(null);
+
+  const isSmall = height < 780;
+  const isNarrow = width < 390;
+  const sliderThumbSize = isNarrow ? 48 : 54;
+  const sliderPadding = 6;
+
+  const sliderMax = Math.max(
+    0,
+    sliderWidth - sliderThumbSize - sliderPadding * 2,
+  );
+
+  const handleComplete = () => {
+    const role = selectedRoleRef.current;
+
+    if (!role) return;
 
     router.push({
-      pathname: '/auth/phone',
-      params: { role: selectedRole },
+      pathname: "/auth/phone",
+      params: { role },
     });
+  };
+
+  const sliderResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () =>
+          Boolean(selectedRoleRef.current),
+        onMoveShouldSetPanResponder: () =>
+          Boolean(selectedRoleRef.current),
+        onPanResponderGrant: () => {
+          thumbX.stopAnimation((value) => {
+            startX.current = value;
+          });
+        },
+        onPanResponderMove: (_, gestureState) => {
+          thumbX.setValue(
+            clamp(
+              startX.current + gestureState.dx,
+              0,
+              sliderMax,
+            ),
+          );
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const nextX = clamp(
+            startX.current + gestureState.dx,
+            0,
+            sliderMax,
+          );
+
+          const threshold = sliderMax * 0.78;
+
+          if (sliderMax > 0 && nextX >= threshold) {
+            Animated.timing(thumbX, {
+              toValue: sliderMax,
+              duration: 120,
+              useNativeDriver: false,
+            }).start(handleComplete);
+            return;
+          }
+
+          Animated.spring(thumbX, {
+            toValue: 0,
+            useNativeDriver: false,
+            tension: 110,
+            friction: 10,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(thumbX, {
+            toValue: 0,
+            useNativeDriver: false,
+            tension: 110,
+            friction: 10,
+          }).start();
+        },
+      }),
+    [handleComplete, sliderMax, thumbX],
+  );
+
+  const handleRoleChange = (role: UserRole) => {
+    selectedRoleRef.current = role;
+    setSelectedRole(role);
+
+    Animated.spring(thumbX, {
+      toValue: 0,
+      useNativeDriver: false,
+      tension: 110,
+      friction: 10,
+    }).start();
   };
 
   return (
@@ -30,172 +126,276 @@ export default function WelcomeScreen() {
         styles.screen,
         {
           paddingTop: insets.top,
-          paddingBottom: Math.max(insets.bottom, 16),
+          paddingBottom: Math.max(insets.bottom, 8),
         },
       ]}
     >
       <StatusBar
         barStyle="dark-content"
-        backgroundColor="#F7F7F5"
+        backgroundColor="#F8F7F3"
       />
 
+      {/* ===== BACKGROUND GEOMETRY ===== */}
+      <View pointerEvents="none" style={styles.geometry}>
+        {/* Large sage circle */}
+        <View style={styles.geoCircleLarge} />
+
+        {/* Soft cream circle */}
+        <View style={styles.geoCircleSmall} />
+
+        {/* Slanted upper pill */}
+        <View style={styles.geoSlantedPill} />
+
+        {/* Bottom-right angular shape */}
+        <View style={styles.geoBottomShapeA} />
+        <View style={styles.geoBottomShapeB} />
+
+        {/* Tiny top-right rounded bar */}
+        <View style={styles.geoTopRightBar} />
+      </View>
+
       <View style={styles.container}>
-        {/* Header */}
+        {/* ===== BRAND HEADER ===== */}
         <View style={styles.header}>
-          <View style={styles.brandContainer}>
+          <View style={styles.brandRow}>
             <View style={styles.logo}>
-              <View style={styles.roof} />
-              <View style={styles.house} />
+              <View style={styles.logoRoof} />
+              <View style={styles.logoHouse} />
             </View>
 
-            <Text style={styles.brand}>homehelp</Text>
+            <View>
+              <Text style={styles.brand}>homehelp</Text>
+              <Text style={styles.brandTag}>
+                BETTER HOMES · BETTER LIVING
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.utilityShape}>
+            <View style={styles.utilityInner}>
+              <View style={styles.utilityDot} />
+            </View>
           </View>
         </View>
 
-        {/* Welcome */}
-        <View style={styles.welcomeSection}>
+        {/* ===== HERO ===== */}
+        <View
+          style={[
+            styles.hero,
+            isSmall && styles.heroSmall,
+          ]}
+        >
           <Text style={styles.overline}>WELCOME</Text>
 
-          <Text style={styles.title}>
-            Home care,{'\n'}
-            <Text style={styles.titleAccent}>made simple.</Text>
+          <Text style={styles.heroTitle}>
+            A calmer home,
+            {"\n"}
+            <Text style={styles.heroAccent}>starts here.</Text>
           </Text>
 
-          <Text style={styles.subtitle}>
-            Get reliable help for your home{'\n'}
-            whenever you need it.
+          <Text style={styles.heroSubtitle}>
+            Trusted home services, thoughtfully matched
+            {"\n"}
+            to make everyday living feel easier.
+          </Text>
+
+          <View style={styles.heroRule} />
+
+          <Text style={styles.heroMeta}>
+            SIMPLE · TRUSTED · ON DEMAND
           </Text>
         </View>
 
-        {/* Role Selection */}
-        <View style={styles.roleSection}>
+        {/* ===== ROLE SELECTOR ===== */}
+        <View
+          style={[
+            styles.roleSection,
+            isSmall && styles.roleSectionSmall,
+          ]}
+        >
+          <Text style={styles.sectionEyebrow}>CHOOSE YOUR PATH</Text>
+
           <Text style={styles.sectionTitle}>
             How would you like to continue?
           </Text>
 
-          {/* Customer */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setSelectedRole('user')}
-            style={[
-              styles.roleCard,
-              selectedRole === 'user' && styles.roleCardSelected,
-            ]}
-          >
-            <View
+          <View style={styles.roleRow}>
+            {/* CUSTOMER */}
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={() => handleRoleChange("user")}
               style={[
-                styles.roleIcon,
-                selectedRole === 'user' && styles.roleIconSelected,
+                styles.roleCard,
+                styles.customerCard,
+                selectedRole === "user" &&
+                  styles.roleCardSelected,
               ]}
             >
-              <Text
-                style={[
-                  styles.homeIcon,
-                  selectedRole === 'user' && styles.iconSelected,
-                ]}
-              >
-                ⌂
-              </Text>
-            </View>
+              <View style={styles.cardTop}>
+                <View
+                  style={[
+                    styles.roleIcon,
+                    styles.customerIcon,
+                    selectedRole === "user" &&
+                      styles.iconSelectedBg,
+                  ]}
+                >
+                  <View style={styles.homeIcon}>
+                    <View style={styles.homeRoof} />
+                    <View style={styles.homeBody} />
+                  </View>
+                </View>
 
-            <View style={styles.roleInfo}>
+                <Radio selected={selectedRole === "user"} />
+              </View>
+
+              <Text style={styles.cardNumber}>01</Text>
+
               <Text style={styles.roleTitle}>Customer</Text>
 
               <Text style={styles.roleDescription}>
-                Book trusted help for your home
+                Book trusted help
+                {"\n"}
+                for your home
               </Text>
-            </View>
 
-            <View
+              <View
+                pointerEvents="none"
+                style={styles.customerShape}
+              />
+            </TouchableOpacity>
+
+            {/* HELP */}
+            <TouchableOpacity
+              activeOpacity={0.92}
+              onPress={() => handleRoleChange("maid")}
               style={[
-                styles.radio,
-                selectedRole === 'user' && styles.radioSelected,
+                styles.roleCard,
+                styles.helpCard,
+                selectedRole === "maid" &&
+                  styles.roleCardSelected,
               ]}
             >
-              {selectedRole === 'user' && (
-                <View style={styles.radioDot} />
-              )}
-            </View>
-          </TouchableOpacity>
+              <View style={styles.cardTop}>
+                <View
+                  style={[
+                    styles.roleIcon,
+                    styles.helpIcon,
+                    selectedRole === "maid" &&
+                      styles.helpIconSelected,
+                  ]}
+                >
+                  <View style={styles.personIcon}>
+                    <View style={styles.personHead} />
+                    <View style={styles.personBody} />
+                  </View>
+                </View>
 
-          {/* Help */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setSelectedRole('maid')}
-            style={[
-              styles.roleCard,
-              selectedRole === 'maid' && styles.roleCardSelected,
-            ]}
-          >
-            <View
-              style={[
-                styles.roleIcon,
-                selectedRole === 'maid' && styles.roleIconSelected,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.helpIcon,
-                  selectedRole === 'maid' && styles.iconSelected,
-                ]}
-              >
-                +
-              </Text>
-            </View>
+                <Radio selected={selectedRole === "maid"} />
+              </View>
 
-            <View style={styles.roleInfo}>
+              <Text style={styles.cardNumber}>02</Text>
+
               <Text style={styles.roleTitle}>Help</Text>
 
               <Text style={styles.roleDescription}>
-                Provide home services and earn
+                Provide services
+                {"\n"}
+                and earn with flexibility
               </Text>
-            </View>
 
-            <View
-              style={[
-                styles.radio,
-                selectedRole === 'maid' && styles.radioSelected,
-              ]}
-            >
-              {selectedRole === 'maid' && (
-                <View style={styles.radioDot} />
-              )}
-            </View>
-          </TouchableOpacity>
+              <View
+                pointerEvents="none"
+                style={styles.helpShape}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Bottom Action */}
-        <View style={styles.bottomSection}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            disabled={!selectedRole}
-            onPress={handleContinue}
+        {/* ===== BOTTOM SLIDER CTA ===== */}
+        <View style={styles.bottom}>
+          <View style={styles.quoteRow}>
+            <View style={styles.quoteLine} />
+
+            <Text style={styles.quoteText}>
+              A better way to care for your home.
+            </Text>
+          </View>
+
+          <View
             style={[
-              styles.continueButton,
-              !selectedRole && styles.continueButtonDisabled,
+              styles.sliderTrack,
+              !selectedRole &&
+                styles.sliderTrackDisabled,
             ]}
+            onLayout={(event) => {
+              setSliderWidth(
+                event.nativeEvent.layout.width,
+              );
+            }}
+            {...sliderResponder.panHandlers}
           >
-            <Text
+            <Animated.View
+              pointerEvents="none"
               style={[
-                styles.continueText,
-                !selectedRole && styles.continueTextDisabled,
+                styles.sliderProgress,
+                {
+                  width: thumbX.interpolate({
+                    inputRange: [
+                      0,
+                      Math.max(sliderMax, 1),
+                    ],
+                    outputRange: [
+                      sliderThumbSize + 10,
+                      Math.max(
+                        sliderWidth,
+                        sliderThumbSize + 10,
+                      ),
+                    ],
+                    extrapolate: "clamp",
+                  }),
+                },
               ]}
-            >
-              Continue
-            </Text>
+            />
 
             <Text
+              pointerEvents="none"
               style={[
-                styles.arrow,
-                !selectedRole && styles.continueTextDisabled,
+                styles.sliderLabel,
+                !selectedRole &&
+                  styles.sliderLabelDisabled,
               ]}
             >
-              →
+              {selectedRole
+                ? "SLIDE TO CONTINUE"
+                : "SELECT A ROLE TO CONTINUE"}
             </Text>
-          </TouchableOpacity>
 
-          <Text style={styles.footerText}>
-            Simple help. Trusted service.
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.sliderThumb,
+                {
+                  width: sliderThumbSize,
+                  height: sliderThumbSize,
+                  borderRadius:
+                    sliderThumbSize / 2,
+                  top: 6,
+                  left: sliderPadding,
+                  transform: [
+                    { translateX: thumbX },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.sliderArrow}>
+                →
+              </Text>
+            </Animated.View>
+          </View>
+
+          <Text style={styles.footer}>
+            PEOPLE · HOMES · BETTER LIVING
           </Text>
         </View>
       </View>
@@ -203,239 +403,525 @@ export default function WelcomeScreen() {
   );
 }
 
+function Radio({ selected }: { selected: boolean }) {
+  return (
+    <View
+      style={[
+        styles.radio,
+        selected && styles.radioSelected,
+      ]}
+    >
+      {selected ? <View style={styles.radioDot} /> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F7F5',
+    backgroundColor: "#F8F7F3",
+    overflow: "hidden",
   },
 
   container: {
     flex: 1,
     paddingHorizontal: 24,
     paddingTop: 16,
-    paddingBottom: 12,
+    paddingBottom: 6,
+  },
+
+  /* Background geometry */
+  geometry: {
+    ...StyleSheet.absoluteFill,
+    overflow: "hidden",
+  },
+
+  geoCircleLarge: {
+    position: "absolute",
+    width: 245,
+    height: 245,
+    borderRadius: 123,
+    right: -118,
+    top: 226,
+    backgroundColor: "#DCE4DB",
+  },
+
+  geoCircleSmall: {
+    position: "absolute",
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    left: -40,
+    top: 620,
+    backgroundColor: "#E7DECD",
+  },
+
+  geoSlantedPill: {
+    position: "absolute",
+    width: 118,
+    height: 30,
+    borderRadius: 18,
+    right: 18,
+    top: 176,
+    backgroundColor: "#C9D5C7",
+    transform: [{ rotate: "-16deg" }],
+  },
+
+  geoBottomShapeA: {
+    position: "absolute",
+    width: 105,
+    height: 105,
+    right: -38,
+    bottom: 10,
+    borderRadius: 24,
+    backgroundColor: "#D9E2D6",
+    transform: [{ rotate: "45deg" }],
+  },
+
+  geoBottomShapeB: {
+    position: "absolute",
+    width: 66,
+    height: 66,
+    right: 22,
+    bottom: -18,
+    borderRadius: 16,
+    backgroundColor: "#EDE5D8",
+    transform: [{ rotate: "45deg" }],
+  },
+
+  geoTopRightBar: {
+    position: "absolute",
+    width: 70,
+    height: 24,
+    borderRadius: 14,
+    right: 42,
+    top: 68,
+    backgroundColor: "#DCE3D9",
+    transform: [{ rotate: "-14deg" }],
   },
 
   /* Header */
-
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
 
-  brandContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   logo: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    backgroundColor: '#202320',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    backgroundColor: "#202420",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 15,
   },
 
-  roof: {
-    position: 'absolute',
-    width: 13,
-    height: 13,
-    borderLeftWidth: 2,
-    borderTopWidth: 2,
-    borderColor: '#FFFFFF',
-    transform: [{ rotate: '45deg' }],
-    top: 8,
+  logoRoof: {
+    position: "absolute",
+    width: 20,
+    height: 20,
+    borderLeftWidth: 3,
+    borderTopWidth: 3,
+    borderColor: "#F8F7F3",
+    transform: [{ rotate: "45deg" }],
+    top: 12,
   },
 
-  house: {
-    width: 13,
-    height: 10,
-    borderWidth: 2,
+  logoHouse: {
+    width: 19,
+    height: 15,
+    borderWidth: 3,
     borderTopWidth: 0,
-    borderColor: '#FFFFFF',
-    marginTop: 7,
+    borderColor: "#F8F7F3",
+    marginTop: 11,
   },
 
   brand: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.6,
-    color: '#202320',
+    fontSize: 30,
+    fontWeight: "900",
+    letterSpacing: -1.2,
+    color: "#202420",
   },
 
-  /* Welcome */
+  brandTag: {
+    marginTop: 2,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 1.35,
+    color: "#7B837B",
+  },
 
-  welcomeSection: {
-    marginTop: 56,
+  utilityShape: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(196,201,194,0.74)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  utilityInner: {
+    width: 43,
+    height: 43,
+    borderRadius: 22,
+    backgroundColor: "rgba(137,145,136,0.68)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  utilityDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#F8F7F3",
+  },
+
+  /* Hero */
+  hero: {
+    marginTop: 66,
+  },
+
+  heroSmall: {
+    marginTop: 40,
   },
 
   overline: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    color: '#8A8D89',
-    marginBottom: 12,
+    fontWeight: "900",
+    letterSpacing: 2.9,
+    color: "#596B5B",
   },
 
-  title: {
-    fontSize: 40,
-    lineHeight: 45,
-    fontWeight: '800',
-    letterSpacing: -1.5,
-    color: '#202320',
+  heroTitle: {
+    marginTop: 15,
+    fontSize: 41,
+    lineHeight: 44,
+    fontWeight: "900",
+    letterSpacing: -2.1,
+    color: "#202420",
   },
 
-  titleAccent: {
-    color: '#617064',
+  heroAccent: {
+    color: "#69766C",
+    fontWeight: "500",
   },
 
-  subtitle: {
-    marginTop: 17,
-    fontSize: 15,
-    lineHeight: 23,
-    color: '#777A76',
+  heroSubtitle: {
+    marginTop: 15,
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#737A74",
   },
 
-  /* Roles */
+  heroRule: {
+    width: 44,
+    height: 2,
+    marginTop: 19,
+    backgroundColor: "#617365",
+  },
 
+  heroMeta: {
+    marginTop: 8,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+    color: "#9A9F99",
+  },
+
+  /* Role selector */
   roleSection: {
-    marginTop: 46,
+    marginTop: 39,
+  },
+
+  roleSectionSmall: {
+    marginTop: 27,
+  },
+
+  sectionEyebrow: {
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 2.2,
+    color: "#8A9089",
   },
 
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#353735',
-    marginBottom: 15,
+    marginTop: 5,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+    color: "#252925",
+  },
+
+  roleRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 14,
   },
 
   roleCard: {
-    minHeight: 88,
-    backgroundColor: '#FFFFFF',
+    flex: 1,
+    minHeight: 180,
+    borderRadius: 22,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#E3E4E0',
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    overflow: "hidden",
+  },
+
+  customerCard: {
+    backgroundColor: "#EFF4EF",
+    borderColor: "#CFD8CE",
+  },
+
+  helpCard: {
+    backgroundColor: "#F8F5ED",
+    borderColor: "#DED9CC",
   },
 
   roleCardSelected: {
-    backgroundColor: '#F0F3F0',
-    borderColor: '#617064',
+    borderColor: "#6F806F",
+  },
+
+  cardTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
   },
 
   roleIcon: {
-    width: 50,
-    height: 50,
+    width: 48,
+    height: 48,
     borderRadius: 15,
-    backgroundColor: '#F1F1EE',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  roleIconSelected: {
-    backgroundColor: '#DCE4DD',
-  },
-
-  homeIcon: {
-    fontSize: 27,
-    color: '#60635F',
+  customerIcon: {
+    backgroundColor: "#DCE7D9",
   },
 
   helpIcon: {
-    fontSize: 28,
-    fontWeight: '300',
-    color: '#60635F',
+    backgroundColor: "#E9E0D2",
   },
 
-  iconSelected: {
-    color: '#4D5D51',
+  helpIconSelected: {
+    backgroundColor: "#DFD4C3",
   },
 
-  roleInfo: {
-    flex: 1,
-    marginLeft: 14,
-    paddingRight: 12,
-  },
-
-  roleTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#252725',
-  },
-
-  roleDescription: {
-    marginTop: 5,
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#858884',
+  iconSelectedBg: {
+    backgroundColor: "#CEDCCB",
   },
 
   radio: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#C5C7C3',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: "#B3B8B2",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.18)",
   },
 
   radioSelected: {
-    borderColor: '#617064',
+    borderColor: "#667969",
   },
 
   radioDot: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: '#617064',
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#667969",
+  },
+
+  cardNumber: {
+    marginTop: 18,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.8,
+    color: "#929890",
+  },
+
+  roleTitle: {
+    marginTop: 5,
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: "900",
+    letterSpacing: -0.8,
+    color: "#242824",
+  },
+
+  roleDescription: {
+    marginTop: 7,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#757C75",
+  },
+
+  customerShape: {
+    position: "absolute",
+    width: 92,
+    height: 92,
+    right: -35,
+    bottom: -35,
+    borderRadius: 48,
+    backgroundColor: "#D5E1D2",
+  },
+
+  helpShape: {
+    position: "absolute",
+    width: 68,
+    height: 68,
+    right: -18,
+    bottom: -20,
+    borderRadius: 15,
+    backgroundColor: "#E8DCCB",
+    transform: [{ rotate: "45deg" }],
+  },
+
+  /* CSS-like icons */
+  homeIcon: {
+    width: 29,
+    height: 29,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  homeRoof: {
+    position: "absolute",
+    width: 19,
+    height: 19,
+    top: 1,
+    borderLeftWidth: 2,
+    borderTopWidth: 2,
+    borderColor: "#506154",
+    transform: [{ rotate: "45deg" }],
+  },
+
+  homeBody: {
+    position: "absolute",
+    bottom: 2,
+    width: 19,
+    height: 15,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderColor: "#506154",
+    backgroundColor: "transparent",
+  },
+
+  personIcon: {
+    width: 30,
+    height: 32,
+    alignItems: "center",
+  },
+
+  personHead: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: "#6D5F4E",
+  },
+
+  personBody: {
+    marginTop: 5,
+    width: 25,
+    height: 13,
+    borderTopLeftRadius: 13,
+    borderTopRightRadius: 13,
+    borderWidth: 2,
+    borderBottomWidth: 0,
+    borderColor: "#6D5F4E",
   },
 
   /* Bottom */
-
-  bottomSection: {
-    marginTop: 'auto',
+  bottom: {
+    marginTop: "auto",
+    paddingTop: 20,
   },
 
-  continueButton: {
-    height: 56,
-    borderRadius: 17,
-    backgroundColor: '#202320',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  quoteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
   },
 
-  continueButtonDisabled: {
-    backgroundColor: '#DDDED9',
+  quoteLine: {
+    width: 36,
+    height: 2,
+    backgroundColor: "#657468",
+    marginRight: 9,
   },
 
-  continueText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  quoteText: {
+    flex: 1,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.15,
+    color: "#8D938D",
   },
 
-  continueTextDisabled: {
-    color: '#9C9E99',
+  sliderTrack: {
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#385044",
+    justifyContent: "center",
+    overflow: "hidden",
   },
 
-  arrow: {
-    fontSize: 21,
-    marginLeft: 10,
+  sliderTrackDisabled: {
+    backgroundColor: "#D7DAD4",
+  },
+
+  sliderProgress: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 32,
+    backgroundColor: "#2D4238",
+  },
+
+  sliderLabel: {
+    textAlign: "center",
+    paddingHorizontal: 68,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    color: "#F7F5EC",
+  },
+
+  sliderLabelDisabled: {
+    color: "#929790",
+  },
+
+  sliderThumb: {
+    position: "absolute",
+    backgroundColor: "#F7F5EC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  sliderArrow: {
+    fontSize: 24,
+    fontWeight: "500",
+    color: "#385044",
     marginTop: -2,
-    color: '#FFFFFF',
   },
 
-  footerText: {
-    textAlign: 'center',
-    marginTop: 12,
-    fontSize: 11,
-    color: '#A0A29E',
+  footer: {
+    marginTop: 8,
+    textAlign: "center",
+    fontSize: 7.5,
+    fontWeight: "900",
+    letterSpacing: 1.85,
+    color: "#A4A8A2",
   },
+
 });

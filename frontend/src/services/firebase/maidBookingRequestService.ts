@@ -200,6 +200,24 @@ export function subscribeToPendingMaidBookingRequestIds(
     return () => {};
   }
 
+    const currentUser = getAuth().currentUser;
+
+  if (!currentUser) {
+    const error = new Error(
+      'Your session has expired. Please login again.',
+    );
+    onError?.(error);
+    return () => {};
+  }
+
+  if (currentUser.uid !== normalizedMaidId) {
+    const error = new Error(
+      'The active user does not match the Help profile.',
+    );
+    onError?.(error);
+    return () => {};
+  }
+
   const db = getFirestore();
 
   const requestsQuery = query(

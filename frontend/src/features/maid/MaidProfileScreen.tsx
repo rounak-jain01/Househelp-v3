@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { getAuth, signOut } from '@react-native-firebase/auth';
+import { getMessaging, getToken } from '@react-native-firebase/messaging';
 import {
   doc,
   getFirestore,
@@ -23,6 +24,7 @@ import {
   type MaidServiceCategory,
 } from '../../services/firebase/maidService';
 import { useMaidLanguage } from './MaidLanguageContext';
+import { removeFcmToken } from '../../services/notifications/notificationService';
 
 type MaidProfile = {
   maidId?: string;
@@ -133,7 +135,30 @@ export default function MaidProfileScreen() {
     try {
       setError('');
       setIsSigningOut(true);
-      await signOut(getAuth());
+
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+
+      if (currentUser) {
+        try {
+          const token = await getToken(getMessaging());
+
+          if (token) {
+            await removeFcmToken(
+              currentUser.uid,
+              token,
+              'maid',
+            );
+          }
+        } catch (tokenError) {
+          console.warn(
+            '[MaidProfile] FCM token cleanup skipped:',
+            tokenError,
+          );
+        }
+      }
+
+      await signOut(auth);
       router.replace('/auth/welcome');
     } catch (signOutError) {
       console.error(

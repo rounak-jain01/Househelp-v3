@@ -13,7 +13,10 @@ import {
   getAuth,
   signOut,
 } from '@react-native-firebase/auth';
+import { getMessaging, getToken } from '@react-native-firebase/messaging';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { removeFcmToken } from '../../services/notifications/notificationService';
 
 import {
   subscribeToCustomerProfile,
@@ -69,7 +72,29 @@ export default function CustomerProfileScreen() {
       setLogoutError('');
       setIsSigningOut(true);
 
-      await signOut(getAuth());
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+
+      if (currentUser) {
+        try {
+          const token = await getToken(getMessaging());
+
+          if (token) {
+            await removeFcmToken(
+              currentUser.uid,
+              token,
+              'customer',
+            );
+          }
+        } catch (tokenError) {
+          console.warn(
+            '[CustomerProfile] FCM token cleanup skipped:',
+            tokenError,
+          );
+        }
+      }
+
+      await signOut(auth);
 
       router.replace('/auth/welcome');
     } catch (signOutError) {

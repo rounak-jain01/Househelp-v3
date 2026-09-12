@@ -660,6 +660,8 @@ export default function MaidActiveBookingScreen({
         await completeBooking(
           bookingId,
         );
+
+        router.replace(`/maid/billing/${bookingId}`);
       } catch (completionError) {
         console.error(
           "[MaidActiveBooking] Complete failed:",
