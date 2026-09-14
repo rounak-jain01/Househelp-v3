@@ -190,44 +190,63 @@ export default function CustomerBookingsScreen() {
     setReloadKey((value) => value + 1);
   };
 
-  const displayName = profile?.name?.trim()?.split(/\s+/)[0] || 'Profile';
-  const profileInitials = initials(profile?.name);
 
   if (isLoading) {
     return (
       <View style={styles.centerScreen}>
         <ActivityIndicator size="large" color="#1F7A4C" />
-        <Text style={styles.loadingText}>Loading your bookings...</Text>
+        <Text style={styles.loadingText}>
+          Loading your bookings...
+        </Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      {/* FIXED HEADER */}
+      <View
+        style={[
+          styles.fixedHeader,
+          {
+            paddingTop: insets.top + 4,
+          },
+        ]}
+      >
+        <View style={styles.headerBar}>
+          <Image
+            source={require("../../../assets/CustomerUi/CustomerBookings/logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
+      </View>
+
+      {/* SCROLLABLE CONTENT */}
       <FlatList
         data={bookings}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor="#0F6B51"
+          />
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: insets.top + 18,
+          paddingTop: insets.top + 112,
           paddingHorizontal: 20,
-          paddingBottom: insets.bottom + 104,
+          paddingBottom: insets.bottom + 115,
           flexGrow: bookings.length ? 0 : 1,
         }}
         ListHeaderComponent={
           <View>
-            <View style={styles.header}>
-              <Pressable style={styles.backButton} onPress={() => router.replace('/customer')}>
-                <Text style={styles.backIcon}>‹</Text>
-              </Pressable>
-              <View style={styles.headerText}>
-                <Text style={styles.eyebrow}>HOMEHELP</Text>
-                <Text style={styles.title}>Your bookings</Text>
-                <Text style={styles.subtitle}>
-                  {bookings.length ? `${summary.active.length} active • ${summary.completed.length} completed` : 'Track your bookings in one place.'}
-                </Text>
-              </View>
+            <View style={styles.heroHeader}>
+              <Text style={styles.pageTitle}>My Bookings</Text>
+              <Text style={styles.pageSubtitle}>
+                Track and manage all your home service bookings.
+              </Text>
             </View>
 
             {error ? (
@@ -249,162 +268,607 @@ export default function CustomerBookingsScreen() {
             <Text style={styles.emptyText}>
               Your bookings will appear here after you book a Help.
             </Text>
-            <Pressable style={styles.primaryButton} onPress={() => router.push('/customer/book')}>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={() => router.push("/customer/book")}
+            >
               <Text style={styles.primaryButtonText}>Book a Help</Text>
+              <Text style={styles.primaryButtonArrow}>→</Text>
             </Pressable>
           </View>
         }
         renderItem={({ item }) => {
-          const maidName = item.maidDetails?.name || item.maidName || 'Help not assigned';
-          const maidPhoto = item.maidDetails?.photoUrl;
+          const category = item.categories?.length
+            ? formatCategory(item.categories[0])
+            : "Home service";
+
+          const secondaryCategories =
+            item.categories && item.categories.length > 1
+              ? ` +${item.categories.length - 1}`
+              : "";
+
           const statusColors = statusStyle(item.status);
-          const isTerminal = terminalStatuses.includes(item.status as BookingStatus);
+          const isTerminal = terminalStatuses.includes(
+            item.status as BookingStatus,
+          );
+
+          const formatted = formatDateTime(item.scheduledDateTime);
+          const parts = formatted.split(", ");
+          const datePart = parts.slice(0, 2).join(", ");
+          const timePart = parts.slice(2).join(", ") || formatted;
+
+          const maidName =
+            item.maidDetails?.name ||
+            item.maidName ||
+            "Help not assigned";
+
+          const maidPhoto = item.maidDetails?.photoUrl;
+          const categoryIcon = getBookingIcon(category);
 
           return (
             <Pressable
-              onPress={() => router.push(`/customer/booking/${item.id}`)}
-              style={({ pressed }) => [styles.bookingCard, pressed && styles.pressed]}
+              onPress={() =>
+                router.push(`/customer/booking/${item.id}`)
+              }
+              style={({ pressed }) => [
+                styles.bookingCard,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${category} booking`}
             >
-              <View style={styles.cardTopRow}>
-                <View style={styles.maidAvatar}>
-                  {maidPhoto ? (
-                    <Image source={{ uri: maidPhoto }} style={styles.maidAvatarImage} />
-                  ) : (
-                    <Text style={styles.maidAvatarText}>{initials(maidName)}</Text>
-                  )}
+              {/* TOP AREA */}
+              <View style={styles.bookingTop}>
+                <View
+                  style={[
+                    styles.categoryIconWrap,
+                    {
+                      backgroundColor:
+                        categoryIcon.backgroundColor,
+                    },
+                  ]}
+                >
+                  <Image
+                    source={categoryIcon.source}
+                    style={styles.categoryIcon}
+                    resizeMode="contain"
+                  />
                 </View>
-                <View style={styles.mainInfo}>
-                  <Text style={styles.bookingTitle} numberOfLines={2}>
-                    {item.categories?.length
-                      ? item.categories.map(formatCategory).join(' • ')
-                      : 'Home service'}
+
+                <View style={styles.bookingMain}>
+                  <Text style={styles.bookingTitle} numberOfLines={1}>
+                    {category}
+                    {secondaryCategories}
                   </Text>
-                  <Text style={styles.scheduledText}>{formatDateTime(item.scheduledDateTime)}</Text>
-                  <Text style={styles.maidName}>{maidName}</Text>
+
+                  <View style={styles.helperLine}>
+                    <View style={styles.miniPerson}>
+                      {maidPhoto ? (
+                        <Image
+                          source={{ uri: maidPhoto }}
+                          style={styles.miniPersonImage}
+                        />
+                      ) : (
+                        <Text style={styles.miniPersonInitials}>
+                          {initials(maidName)}
+                        </Text>
+                      )}
+                    </View>
+
+                    <Text
+                      numberOfLines={1}
+                      style={styles.helperName}
+                    >
+                      {maidName}
+                    </Text>
+                  </View>
                 </View>
-                <View style={[styles.statusPill, { backgroundColor: statusColors.bg }]}>
-                  <Text style={[styles.statusText, { color: statusColors.text }]}>
+
+                <View
+                  style={[
+                    styles.statusPill,
+                    { backgroundColor: statusColors.bg },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.statusDot,
+                      { backgroundColor: statusColors.text },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.statusText,
+                      { color: statusColors.text },
+                    ]}
+                  >
                     {statusLabel(item.status)}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.divider} />
+              <View style={styles.cardDivider} />
 
-              <View style={styles.metaRow}>
-                <View style={styles.metaBlock}>
-                  <Text style={styles.metaLabel}>Duration</Text>
-                  <Text style={styles.metaValue}>
-                    {typeof item.duration === 'number' ? `${item.duration} hr` : '—'}
-                  </Text>
+              {/* DATE / TIME */}
+              <View style={styles.detailRow}>
+                <View style={styles.detailIconBox}>
+                  <Image
+                    source={require("../../../assets/CustomerUi/CustomerBookings/calendar.png")}
+                    style={styles.detailIcon}
+                    resizeMode="contain"
+                  />
                 </View>
-                <View style={styles.metaBlock}>
-                  <Text style={styles.metaLabel}>Amount</Text>
-                  <Text style={styles.amountValue}>
-                    {typeof item.totalPrice === 'number' ? `₹${item.totalPrice}` : '—'}
-                  </Text>
-                </View>
-                <View style={styles.metaBlockWide}>
-                  <Text style={styles.metaLabel}>Service at</Text>
-                  <Text style={styles.metaValue} numberOfLines={1}>
-                    {item.customerAddress?.formatted || 'Address unavailable'}
+
+                <View style={styles.detailCopy}>
+                  <Text style={styles.detailLabel}>DATE & TIME</Text>
+                  <Text style={styles.detailValue} numberOfLines={1}>
+                    {datePart} • {timePart}
                   </Text>
                 </View>
               </View>
 
-              <Text style={[styles.openHint, isTerminal && styles.openHintTerminal]}>
-                {isTerminal ? 'View booking details →' : 'View live status →'}
+              {/* ADDRESS */}
+              <View style={styles.detailRow}>
+                <View style={styles.detailIconBox}>
+                  <Image
+                    source={require("../../../assets/CustomerUi/CustomerBookings/location.png")}
+                    style={styles.detailIcon}
+                    resizeMode="contain"
+                  />
+                </View>
+
+                <View style={styles.detailCopy}>
+                  <Text style={styles.detailLabel}>SERVICE AT</Text>
+                  <Text style={styles.detailValue} numberOfLines={1}>
+                    {item.customerAddress?.formatted ||
+                      "Address unavailable"}
+                  </Text>
+                </View>
+
+                <Text style={styles.cardArrow}>›</Text>
+              </View>
+
+              {/* BOTTOM SUMMARY */}
+              <View style={styles.summaryRow}>
+                <View>
+                  <Text style={styles.summaryLabel}>DURATION</Text>
+                  <Text style={styles.summaryValue}>
+                    {typeof item.duration === "number"
+                      ? `${item.duration} ${
+                          item.duration === 1 ? "hour" : "hours"
+                        }`
+                      : "—"}
+                  </Text>
+                </View>
+
+                <View style={styles.summaryRight}>
+                  <Text style={styles.summaryLabel}>AMOUNT</Text>
+                  <Text style={styles.amountValue}>
+                    {typeof item.totalPrice === "number"
+                      ? `₹${item.totalPrice}`
+                      : "—"}
+                  </Text>
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  styles.openHint,
+                  isTerminal && styles.openHintTerminal,
+                ]}
+              >
+                {isTerminal
+                  ? "View booking details"
+                  : "View live status"}
+                <Text style={styles.openHintArrow}>  →</Text>
               </Text>
             </Pressable>
           );
         }}
       />
 
-      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <BottomNavItem icon="⌂" label="Home" onPress={() => router.replace('/customer')} />
-        <BottomNavItem icon="▣" label="Bookings" active onPress={() => router.replace('/customer/bookings')} />
-        <BottomNavProfileItem name={profile?.name} photoUrl={profile?.photoUrl} onPress={() => router.replace('/customer/profile')} />
-      </View>
+      {/* NOTE:
+          Home / Bookings / Profile is intentionally NOT rendered here.
+          The customer layout supplies the persistent bottom navigation.
+      */}
     </View>
   );
 }
 
-function BottomNavItem({ icon, label, active = false, onPress }: { icon: string; label: string; active?: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.navItem, pressed && styles.pressed]}>
-      <Text style={[styles.navIcon, active && styles.navIconActive]}>{icon}</Text>
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function BottomNavProfileItem({ name, photoUrl, onPress }: { name?: string; photoUrl?: string | null; onPress: () => void }) {
-  const displayName = name?.trim()?.split(/\s+/)[0] || 'Profile';
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.navItem, pressed && styles.pressed]}>
-      <View style={styles.navProfileImageWrap}>
-        {photoUrl ? (
-          <Image source={{ uri: photoUrl }} style={styles.navProfileImage} />
-        ) : (
-          <Text style={styles.navProfileInitials}>{initials(name)}</Text>
-        )}
-      </View>
-      <Text numberOfLines={1} style={styles.navProfileName}>{displayName}</Text>
-    </Pressable>
-  );
+function getBookingIcon(category: string) {
+  switch (category.toLowerCase()) {
+    case "cleaning":
+      return {
+        source: require("../../../assets/CustomerUi/CustomerBookings/cleaning.png"),
+        backgroundColor: "#FFF4E7",
+      };
+    case "cooking":
+      return {
+        source: require("../../../assets/CustomerUi/CustomerBookings/cooking.png"),
+        backgroundColor: "#EEF6F0",
+      };
+    case "laundry":
+      return {
+        source: require("../../../assets/CustomerUi/CustomerBookings/laundry.png"),
+        backgroundColor: "#EEF4FF",
+      };
+    case "dishwashing":
+      return {
+        source: require("../../../assets/CustomerUi/CustomerBookings/dishwashing.png"),
+        backgroundColor: "#F1F0FF",
+      };
+    default:
+      return {
+        source: require("../../../assets/CustomerUi/CustomerBookings/home-service.png"),
+        backgroundColor: "#EEF6F0",
+      };
+  }
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F9F7' },
-  centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F9F7' },
-  loadingText: { marginTop: 12, fontSize: 13, color: '#747B75' },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
-  backButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E2E7E2' },
-  backIcon: { fontSize: 29, lineHeight: 30, color: '#141914', marginTop: -2 },
-  headerText: { flex: 1, marginLeft: 13 },
-  eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, color: '#1F7A4C' },
-  title: { marginTop: 4, fontSize: 28, lineHeight: 34, fontWeight: '800', color: '#151A16' },
-  subtitle: { marginTop: 4, fontSize: 12, lineHeight: 18, color: '#7A817B' },
-  errorCard: { marginBottom: 15, padding: 13, borderRadius: 14, backgroundColor: '#FFF4F2', borderWidth: 1, borderColor: '#F1D7D3' },
-  errorText: { fontSize: 12, lineHeight: 18, color: '#B42318' },
-  retryButton: { marginTop: 8, alignSelf: 'flex-start' },
-  retryText: { fontSize: 12, fontWeight: '800', color: '#B42318' },
-  bookingCard: { marginBottom: 12, padding: 16, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E7E2' },
-  pressed: { opacity: 0.82 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  maidAvatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#EAF2EB', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
-  maidAvatarImage: { width: '100%', height: '100%' },
-  maidAvatarText: { fontSize: 13, fontWeight: '800', color: '#1F7A4C' },
-  mainInfo: { flex: 1, paddingRight: 8 },
-  bookingTitle: { fontSize: 15, lineHeight: 20, fontWeight: '800', color: '#202620' },
-  scheduledText: { marginTop: 3, fontSize: 11, color: '#7C847D' },
-  maidName: { marginTop: 4, fontSize: 12, fontWeight: '700', color: '#394139' },
-  statusPill: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, alignSelf: 'flex-start' },
-  statusText: { fontSize: 8, fontWeight: '900' },
-  divider: { height: 1, backgroundColor: '#EDF0ED', marginVertical: 13 },
-  metaRow: { flexDirection: 'row', gap: 12 },
-  metaBlock: { minWidth: 65 },
-  metaBlockWide: { flex: 1 },
-  metaLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 0.7, color: '#9A9F9A' },
-  metaValue: { marginTop: 3, fontSize: 11, color: '#3B423C', fontWeight: '600' },
-  amountValue: { marginTop: 3, fontSize: 12, color: '#1F7A4C', fontWeight: '900' },
-  openHint: { marginTop: 13, fontSize: 11, fontWeight: '800', color: '#1F7A4C' },
-  openHintTerminal: { color: '#5F6861' },
-  emptyCard: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28, minHeight: 330 },
-  emptyIconCircle: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#EAF5EE', alignItems: 'center', justifyContent: 'center' },
-  emptyIcon: { fontSize: 20, fontWeight: '900', color: '#1F7A4C' },
-  emptyTitle: { marginTop: 13, fontSize: 17, fontWeight: '800', color: '#151A16' },
-  emptyText: { marginTop: 6, fontSize: 12, lineHeight: 18, textAlign: 'center', color: '#7A817B' },
-  primaryButton: { marginTop: 16, height: 46, paddingHorizontal: 22, borderRadius: 14, backgroundColor: '#1F7A4C', alignItems: 'center', justifyContent: 'center' },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
-  bottomNav: { position: 'absolute', left: 12, right: 12, bottom: 9, minHeight: 80, paddingTop: 8, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E1E6E2', flexDirection: 'row', justifyContent: 'space-around', shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
-  navItem: { minWidth: 62, alignItems: 'center', justifyContent: 'center' },
-  navIcon: { fontSize: 19, color: '#858A86' },
-  navIconActive: { color: '#1F7A4C' },
-  navLabel: { marginTop: 3, fontSize: 9, fontWeight: '700', color: '#858A86' },
-  navLabelActive: { color: '#1F7A4C' },
-  navProfileImageWrap: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden', backgroundColor: '#E7EEE7', alignItems: 'center', justifyContent: 'center' },
-  navProfileImage: { width: '100%', height: '100%' },
-  navProfileInitials: { fontSize: 11, fontWeight: '800', color: '#1A211B' },
-  navProfileName: { marginTop: 3, maxWidth: 58, fontSize: 9, fontWeight: '700', color: '#858A86', textAlign: 'center' },
+  container: {
+    flex: 1,
+    backgroundColor: "#FBFCFA",
+  },
+
+  fixedHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    backgroundColor: "#FBFCFA",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF1ED",
+    elevation: 2,
+  },
+
+  headerBar: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+
+  heroHeader: {
+    paddingTop: 14,
+    paddingBottom: 19,
+  },
+
+  pageTitle: {
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: "800",
+    letterSpacing: -0.9,
+    color: "#102536",
+  },
+
+  pageSubtitle: {
+    maxWidth: 330,
+    marginTop: 5,
+    fontSize: 15,
+    lineHeight: 21,
+    color: "#5E7280",
+  },
+
+  logo: {
+    width: 132,
+    height: 55,
+  },
+
+  errorCard: {
+    marginTop: 2,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#FFF4F2",
+    borderWidth: 1,
+    borderColor: "#F0D8D4",
+  },
+
+  errorText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#B42318",
+  },
+
+  retryButton: {
+    marginTop: 7,
+    alignSelf: "flex-start",
+  },
+
+  retryText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#B42318",
+  },
+
+  bookingCard: {
+    marginBottom: 14,
+    padding: 16,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E7ECE8",
+    shadowColor: "#102536",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 2,
+  },
+
+  pressed: {
+    opacity: 0.76,
+  },
+
+  bookingTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  categoryIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  categoryIcon: {
+    width: 42,
+    height: 42,
+  },
+
+  bookingMain: {
+    flex: 1,
+    marginLeft: 12,
+    paddingRight: 6,
+  },
+
+  bookingTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
+    color: "#102536",
+  },
+
+  helperLine: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  miniPerson: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    backgroundColor: "#EAF2EB",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  miniPersonImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  miniPersonInitials: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#1F7A4C",
+  },
+
+  helperName: {
+    flex: 1,
+    marginLeft: 7,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6A7A84",
+  },
+
+  statusPill: {
+    maxWidth: 112,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 99,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+
+  statusText: {
+    fontSize: 8.5,
+    fontWeight: "800",
+  },
+
+  cardDivider: {
+    height: 1,
+    marginVertical: 14,
+    backgroundColor: "#EEF1EE",
+  },
+
+  detailRow: {
+    minHeight: 42,
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  detailIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#F1F5F1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  detailIcon: {
+    width: 19,
+    height: 19,
+  },
+
+  detailCopy: {
+    flex: 1,
+    marginLeft: 9,
+    paddingRight: 4,
+  },
+
+  detailLabel: {
+    fontSize: 7.5,
+    lineHeight: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#929B9A",
+  },
+
+  detailValue: {
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: "#3B505C",
+  },
+
+  cardArrow: {
+    marginLeft: 4,
+    fontSize: 27,
+    lineHeight: 28,
+    color: "#102536",
+  },
+
+  summaryRow: {
+    marginTop: 13,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#EEF1EE",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  summaryRight: {
+    alignItems: "flex-end",
+  },
+
+  summaryLabel: {
+    fontSize: 7.5,
+    lineHeight: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#929B9A",
+  },
+
+  summaryValue: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#102536",
+  },
+
+  amountValue: {
+    marginTop: 3,
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#0F6B51",
+  },
+
+  openHint: {
+    marginTop: 12,
+    alignSelf: "flex-start",
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#0F6B51",
+  },
+
+  openHintTerminal: {
+    color: "#69736E",
+  },
+
+  openHintArrow: {
+    fontSize: 14,
+  },
+
+  emptyCard: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    minHeight: 360,
+  },
+
+  emptyIconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#EAF5EE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyIcon: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: "#1F7A4C",
+  },
+
+  emptyTitle: {
+    marginTop: 14,
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#151A16",
+  },
+
+  emptyText: {
+    marginTop: 7,
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    color: "#77827B",
+  },
+
+  primaryButton: {
+    marginTop: 17,
+    minHeight: 48,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: "#0F6B51",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  primaryButtonArrow: {
+    marginLeft: 10,
+    fontSize: 20,
+    lineHeight: 21,
+    color: "#FFFFFF",
+  },
+
+  centerScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FBFCFA",
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#747B75",
+  },
 });

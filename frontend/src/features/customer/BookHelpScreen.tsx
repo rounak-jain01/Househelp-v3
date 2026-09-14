@@ -1,13 +1,11 @@
 import React, {
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  PanResponder,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -377,1368 +375,613 @@ export default function BookHelpScreen() {
       }
     };
 
+
   return (
     <View style={styles.container}>
-      {/* ===== GEOMETRIC BACKGROUND ===== */}
-      <View
-        pointerEvents="none"
-        style={styles.geometry}
-      >
-        <View style={styles.geoCircleLarge} />
-        <View style={styles.geoCircleSmall} />
-        <View style={styles.geoPill} />
-        <View style={styles.geoDiamond} />
-        <View style={styles.geoArc} />
-      </View>
+      {/* FIXED HEADER */}
+        <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+          <Pressable
+            style={styles.backButton}
+            onPress={() => router.back()}
+            disabled={isBooking}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Text style={styles.backIcon}>‹</Text>
+          </Pressable>
 
-      {/* ===== HEADER ===== */}
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: insets.top + 10,
-          },
-        ]}
-      >
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-          disabled={isBooking}
-        >
-          <Text style={styles.backIcon}>‹</Text>
-        </Pressable>
-
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>
-            HOMEHELP · BOOKING
-          </Text>
-          <Text style={styles.headerTitle}>
-            Book a Help
-          </Text>
+          <View style={styles.headerCopy}>
+            <Text style={styles.headerTitle}>Book a Service</Text>
+            <Text style={styles.headerSubtitle}>
+              Select the services you need
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.stepIndicator}>
-          <Text style={styles.stepMain}>
-            01
-          </Text>
-          <View style={styles.stepLine} />
-          <Text style={styles.stepMuted}>
-            04
-          </Text>
-        </View>
-      </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom:
-              insets.bottom + 150,
+            paddingTop: 10,
+            // Leave enough room for the CTA and the persistent customer layout.
+            paddingBottom: insets.bottom + 165,
           },
         ]}
       >
-        {/* ===== HERO ===== */}
-        <View
-          style={[
-            styles.hero,
-            compact && styles.heroCompact,
-          ]}
-        >
-          <Text style={styles.heroEyebrow}>
-            LET'S GET STARTED
+        {/* SERVICES */}
+        <View style={styles.serviceSection}>
+          <Text style={styles.sectionTitle}>Select a service</Text>
+          <Text style={styles.sectionHint}>
+            Choose one or more services
           </Text>
 
-          <Text style={styles.heroTitle}>
-            Make home
-            {"\n"}
-            <Text style={styles.heroAccent}>
-              feel effortless.
-            </Text>
-          </Text>
+          {isLoadingServices ? (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="small" color="#123F3C" />
+              <Text style={styles.loadingText}>Loading services...</Text>
+            </View>
+          ) : serviceLoadError ? (
+            <View style={styles.errorCardLight}>
+              <Text style={styles.errorCardTitle}>Services unavailable</Text>
+              <Text style={styles.errorCardText}>{serviceLoadError}</Text>
+            </View>
+          ) : services.length === 0 ? (
+            <View style={styles.errorCardLight}>
+              <Text style={styles.errorCardTitle}>No services available</Text>
+              <Text style={styles.errorCardText}>
+                Please try again later.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.serviceGrid}>
+              {services
+                .filter((service) =>
+                  ["cleaning", "cooking", "laundry", "dishwashing"].includes(
+                    service.name.trim().toLowerCase(),
+                  ),
+                )
+                .map((service) => {
+                  const selected = selectedServices.includes(service.id);
+                  const icon = getServiceIcon(service.name);
 
-          <Text style={styles.heroSubtitle}>
-            Tell us what you need, when you need it,
-            {"\n"}
-            and we'll take care of the rest.
-          </Text>
-
-          <View style={styles.heroRule} />
-        </View>
-
-        {/* ===== SERVICES ===== */}
-        <SectionHeader
-          eyebrow="01 · SERVICES"
-          title="What do you need help with?"
-          count={
-            selectedServices.length
-              ? `${selectedServices.length} selected`
-              : "Choose one or more"
-          }
-        />
-
-        {isLoadingServices ? (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator
-              size="small"
-              color="#58705C"
-            />
-            <Text style={styles.loadingText}>
-              Loading services...
-            </Text>
-          </View>
-        ) : serviceLoadError ? (
-          <View style={styles.errorCardLight}>
-            <Text style={styles.errorCardTitle}>
-              Services unavailable
-            </Text>
-            <Text style={styles.errorCardText}>
-              {serviceLoadError}
-            </Text>
-          </View>
-        ) : services.length === 0 ? (
-          <View style={styles.errorCardLight}>
-            <Text style={styles.errorCardTitle}>
-              No services available
-            </Text>
-            <Text style={styles.errorCardText}>
-              Please try again later.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.serviceGrid}>
-            {services.map(
-              (service, index) => {
-                const selected =
-                  selectedServices.includes(
-                    service.id,
-                  );
-
-                const tone =
-                  SERVICE_TONES[
-                    index %
-                      SERVICE_TONES.length
-                  ];
-
-                return (
-                  <Pressable
-                    key={service.id}
-                    disabled={isBooking}
-                    onPress={() =>
-                      toggleService(
-                        service.id,
-                      )
-                    }
-                    style={[
-                      styles.serviceCard,
-                      getToneCardStyle(
-                        tone,
-                      ),
-                      selected &&
-                        styles.serviceCardSelected,
-                    ]}
-                  >
-                    <View
-                      pointerEvents="none"
-                      style={getServiceShapeStyle(
-                        tone,
-                      )}
-                    />
-
-                    <View
-                      style={styles.serviceTop}
+                  return (
+                    <Pressable
+                      key={service.id}
+                      disabled={isBooking}
+                      onPress={() => toggleService(service.id)}
+                      style={({ pressed }) => [
+                        styles.serviceCard,
+                        selected && styles.serviceCardSelected,
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${service.name}`}
                     >
                       <View
                         style={[
                           styles.serviceIconBox,
-                          getToneIconStyle(
-                            tone,
-                          ),
+                          selected && styles.serviceIconBoxSelected,
                         ]}
                       >
-                        <Text
-                          style={
-                            styles.serviceIndex
-                          }
-                        >
-                          {getServiceShortIcon(
-                            service.name,
-                          )}
-                        </Text>
-                      </View>
-
-                      <View
-                        style={[
-                          styles.serviceCheck,
-                          selected &&
-                            styles.serviceCheckSelected,
-                        ]}
-                      >
-                        {selected ? (
-                          <Text
-                            style={
-                              styles.serviceCheckText
-                            }
-                          >
-                            ✓
-                          </Text>
+                        {icon ? (
+                          <Image
+                            source={icon}
+                            style={styles.serviceImage}
+                            resizeMode="contain"
+                          />
                         ) : null}
                       </View>
-                    </View>
 
-                    <Text
-                      style={[
-                        styles.serviceName,
-                        selected &&
-                          styles.serviceNameSelected,
-                      ]}
-                    >
-                      {service.name}
-                    </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.serviceName,
+                          selected && styles.serviceNameSelected,
+                        ]}
+                      >
+                        {service.name}
+                      </Text>
 
-                    <Text
-                      style={[
-                        styles.serviceRate,
-                        selected &&
-                          styles.serviceRateSelected,
-                      ]}
-                    >
-                      ₹{service.ratePerHour}/hr
-                    </Text>
-                  </Pressable>
-                );
-              },
-            )}
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.serviceRate,
+                          selected && styles.serviceRateSelected,
+                        ]}
+                      >
+                        ₹{service.ratePerHour}/hr
+                      </Text>
+
+                      {selected ? (
+                        <View style={styles.serviceCheck}>
+                          <Text style={styles.serviceCheckText}>✓</Text>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+            </View>
+          )}
+        </View>
+
+        {/* DURATION */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>
+                How long do you need help?
+              </Text>
+            </View>
+
+            <Text style={styles.sectionValue}>
+              {duration
+                ? `${duration} ${duration === 1 ? "hr" : "hrs"}`
+                : "Select"}
+            </Text>
           </View>
-        )}
 
-        {/* ===== DURATION ===== */}
-        <SectionHeader
-          eyebrow="02 · DURATION"
-          title="How long do you need help?"
-          count={
-            duration
-              ? `${duration} ${
-                  duration === 1
-                    ? "hour"
-                    : "hours"
-                }`
-              : "Choose duration"
-          }
-        />
+          <View style={styles.durationRow}>
+            {DURATIONS.map((item) => {
+              const selected = duration === item;
 
-        <View style={styles.durationRow}>
-          {DURATIONS.map((item) => {
-            const selected =
-              duration === item;
-
-            return (
-              <Pressable
-                key={item}
-                disabled={isBooking}
-                onPress={() =>
-                  handleDurationSelect(
-                    item,
-                  )
-                }
-                style={[
-                  styles.durationCard,
-                  selected &&
-                    styles.durationCardSelected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.durationNumber,
-                    selected &&
-                      styles.durationSelectedText,
+              return (
+                <Pressable
+                  key={item}
+                  disabled={isBooking}
+                  onPress={() => handleDurationSelect(item)}
+                  style={({ pressed }) => [
+                    styles.durationCard,
+                    selected && styles.durationCardSelected,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  {item}
-                </Text>
-
-                <Text
-                  style={[
-                    styles.durationLabel,
-                    selected &&
-                      styles.durationSelectedText,
-                  ]}
-                >
-                  {item === 1
-                    ? "hour"
-                    : "hours"}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <Text
+                    style={[
+                      styles.durationText,
+                      selected && styles.durationSelectedText,
+                    ]}
+                  >
+                    {item} {item === 1 ? "hr" : "hrs"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
-        {/* ===== DATE / TIME ===== */}
-        <SectionHeader
-          eyebrow="03 · SCHEDULE"
-          title="When should they arrive?"
-          count="At least 2 hours ahead"
-        />
+        {/* DATE + TIME */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Select Date & Time</Text>
+          </View>
 
-        <View style={styles.dateTimeRow}>
-          <Pressable
-            disabled={isBooking}
-            onPress={() => {
-              setBookingError("");
-              setShowDatePicker(true);
-            }}
-            style={styles.dateTimeCard}
-          >
-            <View
-              style={[
-                styles.dateTimeIcon,
-                styles.dateIcon,
-              ]}
-            >
-              <View
-                style={styles.calendarGlyph}
-              >
-                <View
-                  style={
-                    styles.calendarTop
-                  }
-                />
-                <View
-                  style={
-                    styles.calendarBody
-                  }
-                />
-              </View>
-            </View>
-
-            <View
-              style={styles.dateTimeCopy}
-            >
-              <Text style={styles.dateTimeLabel}>
-                DATE
-              </Text>
-              <Text
-                style={[
-                  styles.dateTimeValue,
-                  !scheduledDateTime &&
-                    styles.placeholder,
-                ]}
-                numberOfLines={1}
-              >
-                {displayDate}
-              </Text>
-            </View>
-
-            <Text style={styles.fieldArrow}>
-              ›
-            </Text>
-          </Pressable>
-
-          <Pressable
-            disabled={isBooking}
-            onPress={() => {
-              setBookingError("");
-              if (!scheduledDateTime) {
+          <View style={styles.dateTimeRow}>
+            <Pressable
+              disabled={isBooking}
+              onPress={() => {
+                setBookingError("");
                 setShowDatePicker(true);
-              } else {
-                setShowTimePicker(true);
-              }
-            }}
-            style={styles.dateTimeCard}
-          >
-            <View
-              style={[
-                styles.dateTimeIcon,
-                styles.timeIcon,
+              }}
+              style={({ pressed }) => [
+                styles.dateTimeCard,
+                pressed && styles.pressed,
               ]}
             >
-              <View style={styles.clockGlyph}>
-                <View
-                  style={styles.clockHandHour}
-                />
-                <View
-                  style={styles.clockHandMinute}
+              <View style={[styles.dateTimeIconBox, styles.dateIconBox]}>
+                <Image
+                  source={require("../../../assets/CustomerUi/Customerbook/calendar.png")}
+                  style={styles.dateTimeIcon}
+                  resizeMode="contain"
                 />
               </View>
-            </View>
 
-            <View
-              style={styles.dateTimeCopy}
+              <View style={styles.dateTimeCopy}>
+                <Text style={styles.dateTimeLabel}>DATE</Text>
+                <Text
+                  style={[
+                    styles.dateTimeValue,
+                    !scheduledDateTime && styles.placeholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {displayDate}
+                </Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              disabled={isBooking}
+              onPress={() => {
+                setBookingError("");
+                if (!scheduledDateTime) {
+                  setShowDatePicker(true);
+                } else {
+                  setShowTimePicker(true);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.dateTimeCard,
+                pressed && styles.pressed,
+              ]}
             >
-              <Text style={styles.dateTimeLabel}>
-                TIME
-              </Text>
-              <Text
-                style={[
-                  styles.dateTimeValue,
-                  !scheduledDateTime &&
-                    styles.placeholder,
-                ]}
-                numberOfLines={1}
-              >
-                {displayTime}
-              </Text>
-            </View>
+              <View style={[styles.dateTimeIconBox, styles.timeIconBox]}>
+                <Image
+                  source={require("../../../assets/CustomerUi/Customerbook/clock.png")}
+                  style={styles.dateTimeIcon}
+                  resizeMode="contain"
+                />
+              </View>
 
-            <Text style={styles.fieldArrow}>
-              ›
-            </Text>
-          </Pressable>
-        </View>
+              <View style={styles.dateTimeCopy}>
+                <Text style={styles.dateTimeLabel}>TIME</Text>
+                <Text
+                  style={[
+                    styles.dateTimeValue,
+                    !scheduledDateTime && styles.placeholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {displayTime}
+                </Text>
+              </View>
+            </Pressable>
+          </View>
 
-        <View style={styles.scheduleHint}>
-          <View style={styles.scheduleHintDot} />
-          <Text style={styles.scheduleHintText}>
-            Choose a slot at least 2 hours from now.
+          <Text style={styles.scheduleHint}>
+            Service time must be at least 2 hours from now.
           </Text>
         </View>
 
-        {showDatePicker && (
+        {showDatePicker ? (
           <DateTimePicker
-            value={
-              scheduledDateTime ??
-              minimumBookingTime
-            }
+            value={scheduledDateTime ?? minimumBookingTime}
             mode="date"
             display="default"
             minimumDate={new Date()}
             onChange={handleDateChange}
           />
-        )}
+        ) : null}
 
-        {showTimePicker && (
+        {showTimePicker ? (
           <DateTimePicker
-            value={
-              scheduledDateTime ??
-              minimumBookingTime
-            }
+            value={scheduledDateTime ?? minimumBookingTime}
             mode="time"
             display="default"
             onChange={handleTimeChange}
           />
-        )}
+        ) : null}
 
-        {/* ===== ADDRESS ===== */}
-        <SectionHeader
-          eyebrow="04 · LOCATION"
-          title="Where should the service happen?"
-          count={
-            formattedAddress
-              ? "Home"
-              : "Address required"
-          }
-        />
-
+        {/* ADDRESS */}
         <Pressable
           disabled={isBooking}
-          onPress={() =>
-            router.push(
-              "/customer/profile",
-            )
-          }
-          style={styles.addressCard}
-        >
-          <View style={styles.addressIconBox}>
-            <Text style={styles.addressIcon}>
-              ⌖
-            </Text>
-          </View>
-
-          <View
-            style={styles.addressContent}
-          >
-            <Text style={styles.addressTitle}>
-              Home
-            </Text>
-
-            {formattedAddress ? (
-              <>
-                <Text
-                  style={styles.addressText}
-                  numberOfLines={2}
-                >
-                  {formattedAddress}
-                </Text>
-
-                {landmark ? (
-                  <Text
-                    style={styles.landmarkText}
-                    numberOfLines={1}
-                  >
-                    Landmark · {landmark}
-                  </Text>
-                ) : null}
-              </>
-            ) : (
-              <Text
-                style={styles.addressMissing}
-              >
-                Add your service address to continue.
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.changePill}>
-            <Text style={styles.changeText}>
-              Change
-            </Text>
-          </View>
-        </Pressable>
-
-        {/* ===== PAYMENT NOTE ===== */}
-        <View style={styles.paymentNote}>
-          <View style={styles.paymentIcon}>
-            <Text style={styles.paymentIconText}>
-              ₹
-            </Text>
-          </View>
-
-          <View style={styles.paymentCopy}>
-            <Text style={styles.paymentTitle}>
-              Pay directly after service
-            </Text>
-
-            <Text style={styles.paymentText}>
-              Cash or UPI. No online gateway or
-              platform payment is required.
-            </Text>
-          </View>
-        </View>
-
-        {/* ===== REVIEW ===== */}
-        <View style={styles.reviewCard}>
-          <View style={styles.reviewTop}>
-            <View>
-              <Text style={styles.reviewEyebrow}>
-                YOUR BOOKING
-              </Text>
-              <Text style={styles.reviewTitle}>
-                Estimated total
-              </Text>
-            </View>
-
-            <Text style={styles.reviewPrice}>
-              ₹{totalPrice}
-            </Text>
-          </View>
-
-          <View style={styles.reviewDivider} />
-
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>
-              Services
-            </Text>
-
-            <Text style={styles.reviewValue}>
-              {selectedServices.length
-                ? `${selectedServices.length} selected`
-                : "Not selected"}
-            </Text>
-          </View>
-
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>
-              Duration
-            </Text>
-
-            <Text style={styles.reviewValue}>
-              {duration
-                ? `${duration} ${
-                    duration === 1
-                      ? "hour"
-                      : "hours"
-                  }`
-                : "Not selected"}
-            </Text>
-          </View>
-
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>
-              Schedule
-            </Text>
-
-            <Text style={styles.reviewValue}>
-              {scheduledDateTime
-                ? `${displayDate} · ${displayTime}`
-                : "Not selected"}
-            </Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* ===== BOTTOM ACTION ===== */}
-      <View
-        style={[
-          styles.bottomBar,
-          {
-            paddingBottom:
-              Math.max(insets.bottom, 10),
-          },
-        ]}
-      >
-        {bookingError ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorIcon}>
-              !
-            </Text>
-            <Text style={styles.errorText}>
-              {bookingError}
-            </Text>
-          </View>
-        ) : null}
-
-        {!canContinue &&
-        !bookingError ? (
-          <Text style={styles.validationText}>
-            {!services.length
-              ? "Select an available service to continue"
-              : !selectedServices.length
-                ? "Choose at least one service"
-                : !duration
-                  ? "Choose your duration"
-                  : !scheduledDateTime
-                    ? "Choose a date and time"
-                    : "Add your service address"}
-          </Text>
-        ) : null}
-
-        <SlideToBook
-          enabled={canContinue}
-          loading={isBooking}
-          onComplete={handleCreateBooking}
-        />
-      </View>
-    </View>
-  );
-}
-
-function SectionHeader({
-  eyebrow,
-  title,
-  count,
-}: {
-  eyebrow: string;
-  title: string;
-  count: string;
-}) {
-  return (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionHeaderCopy}>
-        <Text style={styles.sectionEyebrow}>
-          {eyebrow}
-        </Text>
-        <Text style={styles.sectionTitle}>
-          {title}
-        </Text>
-      </View>
-
-      <Text style={styles.sectionCount}>
-        {count}
-      </Text>
-    </View>
-  );
-}
-
-function getToneCardStyle(tone: Tone) {
-  switch (tone) {
-    case "sand":
-      return styles.serviceSand;
-    case "stone":
-      return styles.serviceStone;
-    default:
-      return styles.serviceSage;
-  }
-}
-
-function getToneIconStyle(tone: Tone) {
-  switch (tone) {
-    case "sand":
-      return styles.serviceIconSand;
-    case "stone":
-      return styles.serviceIconStone;
-    default:
-      return styles.serviceIconSage;
-  }
-}
-
-function getServiceShapeStyle(tone: Tone) {
-  switch (tone) {
-    case "sand":
-      return [
-        styles.serviceShape,
-        styles.serviceShapeDiamond,
-        { backgroundColor: "#E6D9C5" },
-      ];
-    case "stone":
-      return [
-        styles.serviceShape,
-        styles.serviceShapeSquare,
-        { backgroundColor: "#DADFD6" },
-      ];
-    default:
-      return [
-        styles.serviceShape,
-        styles.serviceShapeCircle,
-        { backgroundColor: "#D4E1D1" },
-      ];
-  }
-}
-
-function SlideToBook({
-  enabled,
-  loading,
-  onComplete,
-}: {
-  enabled: boolean;
-  loading: boolean;
-  onComplete: () => void;
-}) {
-  const translateX =
-    useRef(new Animated.Value(0)).current;
-
-  const [trackWidth, setTrackWidth] =
-    useState(0);
-
-  const THUMB_SIZE = 50;
-  const TRACK_PADDING = 6;
-
-  const maxX = Math.max(
-    0,
-    trackWidth -
-      THUMB_SIZE -
-      TRACK_PADDING * 2,
-  );
-
-  const enabledRef = useRef(enabled);
-  const loadingRef = useRef(loading);
-  const maxXRef = useRef(maxX);
-  const onCompleteRef = useRef(onComplete);
-
-  useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
-
-  useEffect(() => {
-    loadingRef.current = loading;
-  }, [loading]);
-
-  useEffect(() => {
-    maxXRef.current = maxX;
-  }, [maxX]);
-
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
-
-  const reset = () => {
-    Animated.spring(translateX, {
-      toValue: 0,
-      useNativeDriver: true,
-      damping: 18,
-      stiffness: 180,
-      mass: 0.8,
-    }).start();
-  };
-
-  const finish = () => {
-    const target = maxXRef.current;
-
-    if (target <= 0) {
-      reset();
-      return;
-    }
-
-    Animated.timing(translateX, {
-      toValue: target,
-      duration: 140,
-      useNativeDriver: true,
-    }).start(() => {
-      onCompleteRef.current();
-    });
-  };
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () =>
-          enabledRef.current &&
-          !loadingRef.current,
-
-        onMoveShouldSetPanResponder: (
-          _,
-          gesture,
-        ) =>
-          enabledRef.current &&
-          !loadingRef.current &&
-          Math.abs(gesture.dx) >
-            Math.abs(gesture.dy),
-
-        onPanResponderMove: (
-          _,
-          gesture,
-        ) => {
-          if (
-            !enabledRef.current ||
-            loadingRef.current
-          ) {
-            return;
-          }
-
-          const currentMax =
-            maxXRef.current;
-
-          if (currentMax <= 0) {
-            return;
-          }
-
-          const next = Math.min(
-            currentMax,
-            Math.max(0, gesture.dx),
-          );
-
-          translateX.setValue(next);
-        },
-
-        onPanResponderRelease: (
-          _,
-          gesture,
-        ) => {
-          if (
-            !enabledRef.current ||
-            loadingRef.current
-          ) {
-            reset();
-            return;
-          }
-
-          const currentMax =
-            maxXRef.current;
-
-          if (
-            currentMax > 0 &&
-            gesture.dx >= currentMax * 0.72
-          ) {
-            finish();
-          } else {
-            reset();
-          }
-        },
-
-        onPanResponderTerminate: reset,
-        onPanResponderTerminationRequest: () => true,
-      }),
-    [translateX],
-  );
-
-  useEffect(() => {
-    if (!enabled || loading) {
-      reset();
-    }
-  }, [enabled, loading]);
-
-  return (
-    <View
-      style={[
-        styles.slideTrack,
-        !enabled &&
-          styles.slideTrackDisabled,
-      ]}
-      onLayout={(event) => {
-        const width =
-          event.nativeEvent.layout.width;
-
-        setTrackWidth(width);
-
-        if (width <= 0) {
-          return;
-        }
-      }}
-    >
-      <View
-        pointerEvents="none"
-        style={styles.slideTextWrap}
-      >
-        <Text
-          style={[
-            styles.slideLabel,
-            !enabled &&
-              styles.slideLabelDisabled,
+          onPress={() => router.push("/customer/profile")}
+          style={({ pressed }) => [
+            styles.addressCard,
+            pressed && styles.pressed,
           ]}
         >
-          {loading
-            ? "Creating your booking..."
-            : "Slide to book"}
-        </Text>
+          <View style={styles.addressIconBox}>
+            <Image
+              source={require("../../../assets/CustomerUi/Customerbook/location.png")}
+              style={styles.addressIcon}
+              resizeMode="contain"
+            />
+          </View>
 
-        {!loading ? (
-          <Text
-            style={[
-              styles.slideHint,
-              !enabled &&
-                styles.slideHintDisabled,
-            ]}
-          >
-            {enabled
-              ? "Drag the arrow all the way →"
-              : "Complete the details above"}
-          </Text>
+          <View style={styles.addressCopy}>
+            <Text style={styles.addressLabel}>SERVICE ADDRESS</Text>
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.addressValue,
+                !formattedAddress && styles.addressMissing,
+              ]}
+            >
+              {formattedAddress || "Add your home address"}
+            </Text>
+
+            {landmark ? (
+              <Text numberOfLines={1} style={styles.landmarkText}>
+                {landmark}
+              </Text>
+            ) : null}
+          </View>
+
+          <Text style={styles.addressArrow}>›</Text>
+        </Pressable>
+
+        {/* ESTIMATED PRICE */}
+        <View style={styles.priceCard}>
+          <View>
+            <Text style={styles.priceLabel}>Estimated Price</Text>
+            <Text style={styles.priceHint}>
+              {duration && selectedServices.length
+                ? `₹${services
+                    .filter((service) =>
+                      selectedServices.includes(service.id),
+                    )
+                    .reduce(
+                      (total, service) => total + service.ratePerHour,
+                      0,
+                    )}/hr × ${duration} ${duration === 1 ? "hr" : "hrs"}`
+                : "Select service & duration"}
+            </Text>
+          </View>
+
+          <Text style={styles.priceValue}>₹{totalPrice}</Text>
+        </View>
+
+        {bookingError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorIcon}>!</Text>
+            <Text style={styles.errorText}>{bookingError}</Text>
+          </View>
         ) : null}
-      </View>
+      </ScrollView>
 
-      <Animated.View
-        {...panResponder.panHandlers}
+      {/* CTA — intentionally above the persistent Customer layout */}
+      <View
         style={[
-          styles.slideThumb,
-          !enabled &&
-            styles.slideThumbDisabled,
+          styles.bottomAction,
           {
-            transform: [
-              { translateX },
-            ],
+            paddingBottom: Math.max(insets.bottom + 10, 16),
           },
         ]}
       >
-        {loading ? (
-          <ActivityIndicator
-            size="small"
-            color="#3E5647"
-          />
-        ) : (
-          <Text style={styles.slideArrow}>
-            →
-          </Text>
-        )}
-      </Animated.View>
+        <Pressable
+          disabled={!canContinue}
+          onPress={handleCreateBooking}
+          style={({ pressed }) => [
+            styles.continueButton,
+            !canContinue && styles.continueButtonDisabled,
+            pressed && canContinue && styles.continueButtonPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with booking"
+        >
+          {isBooking ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Text style={styles.continueText}>Continue</Text>
+              <Text style={styles.continueArrow}>→</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
     </View>
   );
+}
+
+
+function getServiceIcon(name: string) {
+  switch (name.toLowerCase().trim()) {
+    case "cleaning":
+      return require("../../../assets/CustomerUi/Customerbook/cleaning.png");
+    case "cooking":
+      return require("../../../assets/CustomerUi/Customerbook/cooking.png");
+    case "laundry":
+      return require("../../../assets/CustomerUi/Customerbook/laundry.png");
+    case "dishwashing":
+      return require("../../../assets/CustomerUi/Customerbook/dishwashing.png");
+    default:
+      return null;
+  }
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8F7F3",
+    backgroundColor: "#FFFFFF",
   },
 
-  geometry: {
-    ...StyleSheet.absoluteFill,
-    overflow: "hidden",
-  },
-
-  geoCircleLarge: {
-    position: "absolute",
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    right: -115,
-    top: 88,
-    backgroundColor: "#DDE5DC",
-  },
-
-  geoCircleSmall: {
-    position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    left: -48,
-    top: 430,
-    backgroundColor: "#E8DFCE",
-  },
-
-  geoPill: {
-    position: "absolute",
-    width: 100,
-    height: 28,
-    borderRadius: 16,
-    right: 25,
-    top: 63,
-    backgroundColor: "#C8D3C6",
-    transform: [{ rotate: "-14deg" }],
-  },
-
-  geoDiamond: {
-    position: "absolute",
-    width: 76,
-    height: 76,
-    right: -24,
-    top: 500,
-    borderRadius: 17,
-    backgroundColor: "#E6DED0",
-    transform: [{ rotate: "45deg" }],
-  },
-
-  geoArc: {
-    position: "absolute",
-    width: 150,
-    height: 150,
-    right: -75,
-    bottom: 50,
-    borderWidth: 25,
-    borderColor: "#D9E1D7",
-    borderRadius: 75,
+  content: {
+    paddingHorizontal: 24,
   },
 
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 24,
+    paddingBottom: 8,
+    backgroundColor: "#FFFFFF",
+    zIndex: 20,
+    elevation: 2,
   },
 
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 17,
-    backgroundColor: "#F0F1EB",
-    alignItems: "center",
+    width: 34,
+    height: 38,
     justifyContent: "center",
+    alignItems: "flex-start",
   },
 
   backIcon: {
-    fontSize: 33,
-    lineHeight: 34,
-    color: "#222621",
-    marginTop: -4,
+    fontSize: 34,
+    lineHeight: 36,
+    color: "#102536",
+    marginTop: -3,
   },
 
   headerCopy: {
     flex: 1,
-    marginLeft: 12,
-  },
-
-  headerEyebrow: {
-    fontSize: 7,
-    fontWeight: "900",
-    letterSpacing: 1.7,
-    color: "#899089",
+    marginLeft: 3,
   },
 
   headerTitle: {
-    marginTop: 3,
-    fontSize: 20,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-    color: "#222621",
+    fontSize: 23,
+    lineHeight: 28,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    color: "#102536",
   },
 
-  stepIndicator: {
-    alignItems: "center",
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: "#63727D",
   },
 
-  stepMain: {
-    fontSize: 8,
-    fontWeight: "900",
-    color: "#536658",
-  },
-
-  stepLine: {
-    width: 15,
-    height: 1,
-    marginVertical: 3,
-    backgroundColor: "#B8BEB6",
-  },
-
-  stepMuted: {
-    fontSize: 7,
-    fontWeight: "700",
-    color: "#A2A7A1",
-  },
-
-  content: {
-    paddingHorizontal: 20,
-  },
-
-  hero: {
-    marginTop: 39,
-    paddingRight: 20,
-  },
-
-  heroCompact: {
-    marginTop: 24,
-  },
-
-  heroEyebrow: {
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 2.25,
-    color: "#607062",
-  },
-
-  heroTitle: {
-    marginTop: 12,
-    fontSize: 37,
-    lineHeight: 40,
-    fontWeight: "900",
-    letterSpacing: -1.6,
-    color: "#222621",
-  },
-
-  heroAccent: {
-    fontWeight: "500",
-    color: "#66746A",
-  },
-
-  heroSubtitle: {
-    marginTop: 13,
-    fontSize: 12,
-    lineHeight: 19,
-    color: "#777E78",
-  },
-
-  heroRule: {
-    width: 40,
-    height: 2,
+  serviceSection: {
     marginTop: 17,
-    backgroundColor: "#647365",
+  },
+
+  section: {
+    marginTop: 25,
   },
 
   sectionHeader: {
-    marginTop: 31,
-    marginBottom: 13,
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "space-between",
-  },
-
-  sectionHeaderCopy: {
-    flex: 1,
-    paddingRight: 12,
-  },
-
-  sectionEyebrow: {
-    fontSize: 7.5,
-    fontWeight: "900",
-    letterSpacing: 1.65,
-    color: "#969C96",
+    marginBottom: 11,
   },
 
   sectionTitle: {
-    marginTop: 4,
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
-    letterSpacing: -0.35,
-    color: "#262B26",
+    fontSize: 16.5,
+    lineHeight: 21,
+    fontWeight: "800",
+    color: "#102536",
+    letterSpacing: -0.25,
   },
 
-  sectionCount: {
-    maxWidth: 105,
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: "800",
-    textAlign: "right",
-    color: "#909790",
+  sectionHint: {
+    marginTop: 2,
+    marginBottom: 11,
+    fontSize: 11,
+    color: "#7A8790",
+  },
+
+  sectionValue: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64747E",
   },
 
   serviceGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    gap: 11,
+    rowGap: 10,
   },
 
   serviceCard: {
-    position: "relative",
-    width: "48.1%",
-    minHeight: 153,
-    padding: 14,
-    borderRadius: 21,
+    width: "31.7%",
+    minHeight: 94,
+    paddingTop: 10,
+    paddingBottom: 9,
+    paddingHorizontal: 7,
+    borderRadius: 17,
     borderWidth: 1,
-    overflow: "hidden",
-  },
-
-  serviceSage: {
-    backgroundColor: "#EEF3ED",
-    borderColor: "#D6DFD3",
-  },
-
-  serviceSand: {
-    backgroundColor: "#F7F3EA",
-    borderColor: "#E4DCCF",
-  },
-
-  serviceStone: {
-    backgroundColor: "#F1F2ED",
-    borderColor: "#DCE0D9",
+    borderColor: "#E7EAE8",
+    backgroundColor: "#FCFCFB",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
   },
 
   serviceCardSelected: {
-    borderColor: "#617462",
-    borderWidth: 1.5,
-  },
-
-  serviceShape: {
-    position: "absolute",
-    right: -24,
-    bottom: -24,
-  },
-
-  serviceShapeCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-
-  serviceShapeDiamond: {
-    width: 59,
-    height: 59,
-    borderRadius: 13,
-    transform: [{ rotate: "45deg" }],
-  },
-
-  serviceShapeSquare: {
-    width: 62,
-    height: 62,
-    borderRadius: 17,
-    transform: [{ rotate: "16deg" }],
-  },
-
-  serviceTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    backgroundColor: "#123F3C",
+    borderColor: "#123F3C",
   },
 
   serviceIconBox: {
-    width: 45,
-    height: 45,
-    borderRadius: 15,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#F2F5F1",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  serviceIconSage: {
-    backgroundColor: "#DCE6D9",
+  serviceIconBoxSelected: {
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
 
-  serviceIconSand: {
-    backgroundColor: "#E9E0D3",
+  serviceImage: {
+    width: 34,
+    height: 34,
   },
 
-  serviceIconStone: {
-    backgroundColor: "#E1E5DE",
-  },
-
-  serviceIndex: {
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-    color: "#586A5B",
-  },
-
-  serviceCheck: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    borderWidth: 1.4,
-    borderColor: "#BDC3BB",
-    backgroundColor: "rgba(255,255,255,0.20)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  serviceCheckSelected: {
-    borderColor: "#607563",
-    backgroundColor: "#607563",
-  },
-
-  serviceCheckText: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#FFFFFF",
+  serviceFallbackIcon: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#123F3C",
   },
 
   serviceName: {
-    marginTop: 18,
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#2A2F2A",
+    marginTop: 7,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    color: "#102536",
+    textAlign: "center",
   },
 
   serviceNameSelected: {
-    color: "#526658",
+    color: "#FFFFFF",
   },
 
   serviceRate: {
-    marginTop: 4,
-    fontSize: 10.5,
-    fontWeight: "700",
-    color: "#878E87",
+    marginTop: 2,
+    fontSize: 8.5,
+    fontWeight: "600",
+    color: "#89959D",
+    textAlign: "center",
   },
 
   serviceRateSelected: {
-    color: "#637267",
+    color: "#DCEAE3",
   },
 
-  loadingCard: {
-    minHeight: 90,
-    borderRadius: 20,
-    backgroundColor: "#F4F5F0",
-    borderWidth: 1,
-    borderColor: "#E0E3DD",
+  serviceCheck: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    gap: 9,
   },
 
-  loadingText: {
-    fontSize: 11,
-    color: "#777F78",
-  },
-
-  errorCardLight: {
-    padding: 15,
-    borderRadius: 18,
-    backgroundColor: "#F7EFE9",
-    borderWidth: 1,
-    borderColor: "#E5D4C8",
-  },
-
-  errorCardTitle: {
-    fontSize: 12,
+  serviceCheckText: {
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "900",
-    color: "#6D5145",
-  },
-
-  errorCardText: {
-    marginTop: 4,
-    fontSize: 10.5,
-    lineHeight: 16,
-    color: "#8A6A5B",
+    color: "#123F3C",
   },
 
   durationRow: {
     flexDirection: "row",
-    gap: 9,
+    justifyContent: "space-between",
+    columnGap: 9,
   },
 
   durationCard: {
     flex: 1,
-    minHeight: 76,
-    borderRadius: 18,
-    backgroundColor: "#F7F7F2",
+    minHeight: 48,
+    borderRadius: 15,
+    backgroundColor: "#FAFAF8",
     borderWidth: 1,
-    borderColor: "#DDE1DA",
+    borderColor: "#E3E7E4",
     alignItems: "center",
     justifyContent: "center",
   },
 
   durationCardSelected: {
-    backgroundColor: "#5D7161",
-    borderColor: "#5D7161",
+    backgroundColor: "#123F3C",
+    borderColor: "#123F3C",
   },
 
-  durationNumber: {
-    fontSize: 23,
-    fontWeight: "900",
-    color: "#2A312B",
-  },
-
-  durationLabel: {
-    marginTop: 2,
-    fontSize: 8.5,
-    fontWeight: "800",
-    color: "#888F88",
+  durationText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#102536",
   },
 
   durationSelectedText: {
@@ -1747,36 +990,42 @@ const styles = StyleSheet.create({
 
   dateTimeRow: {
     flexDirection: "row",
-    gap: 10,
+    columnGap: 10,
   },
 
   dateTimeCard: {
     flex: 1,
-    minHeight: 84,
-    padding: 12,
-    borderRadius: 19,
-    backgroundColor: "#F8F8F4",
+    minHeight: 70,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 17,
+    backgroundColor: "#FAFAF8",
     borderWidth: 1,
-    borderColor: "#DDE1DA",
+    borderColor: "#E3E7E4",
     flexDirection: "row",
     alignItems: "center",
   },
 
-  dateTimeIcon: {
-    width: 39,
-    height: 39,
-    borderRadius: 13,
+  dateTimeIconBox: {
+    width: 37,
+    height: 37,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 9,
+    marginRight: 8,
   },
 
-  dateIcon: {
-    backgroundColor: "#DDE8DB",
+  dateIconBox: {
+    backgroundColor: "#E8F0E7",
   },
 
-  timeIcon: {
-    backgroundColor: "#E9E0D2",
+  timeIconBox: {
+    backgroundColor: "#F4EBDF",
+  },
+
+  dateTimeIcon: {
+    width: 22,
+    height: 22,
   },
 
   dateTimeCopy: {
@@ -1785,290 +1034,164 @@ const styles = StyleSheet.create({
 
   dateTimeLabel: {
     fontSize: 7.5,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-    color: "#959B95",
+    lineHeight: 9,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#8B969D",
   },
 
   dateTimeValue: {
-    marginTop: 4,
-    fontSize: 11.5,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: "#2C322C",
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: "#102536",
   },
 
   placeholder: {
-    color: "#A2A7A2",
-  },
-
-  fieldArrow: {
-    marginLeft: 4,
-    fontSize: 21,
-    color: "#7A857B",
-  },
-
-  calendarGlyph: {
-    width: 19,
-    height: 18,
-    borderWidth: 1.7,
-    borderColor: "#526557",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-
-  calendarTop: {
-    height: 5,
-    backgroundColor: "#526557",
-  },
-
-  calendarBody: {
-    flex: 1,
-    backgroundColor: "transparent",
-  },
-
-  clockGlyph: {
-    width: 19,
-    height: 19,
-    borderWidth: 1.7,
-    borderColor: "#796C59",
-    borderRadius: 10,
-  },
-
-  clockHandHour: {
-    position: "absolute",
-    width: 1.7,
-    height: 6,
-    left: 8,
-    top: 4,
-    backgroundColor: "#796C59",
-  },
-
-  clockHandMinute: {
-    position: "absolute",
-    width: 6,
-    height: 1.7,
-    left: 8,
-    top: 9,
-    backgroundColor: "#796C59",
+    color: "#A1A8AD",
   },
 
   scheduleHint: {
-    marginTop: 9,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  scheduleHintDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#738076",
-    marginRight: 6,
-  },
-
-  scheduleHintText: {
+    marginTop: 7,
     fontSize: 9.5,
-    color: "#929992",
+    lineHeight: 13,
+    color: "#89949A",
   },
 
   addressCard: {
-    minHeight: 96,
-    padding: 13,
-    borderRadius: 20,
-    backgroundColor: "#F7F7F2",
+    marginTop: 24,
+    minHeight: 72,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 17,
+    backgroundColor: "#FAFAF8",
     borderWidth: 1,
-    borderColor: "#DDE1DA",
+    borderColor: "#E3E7E4",
     flexDirection: "row",
     alignItems: "center",
   },
 
   addressIconBox: {
-    width: 45,
-    height: 45,
-    borderRadius: 15,
-    backgroundColor: "#DDE8DB",
+    width: 37,
+    height: 37,
+    borderRadius: 12,
+    backgroundColor: "#E8F0E7",
     alignItems: "center",
     justifyContent: "center",
   },
 
   addressIcon: {
-    fontSize: 22,
-    color: "#526557",
+    width: 22,
+    height: 22,
   },
 
-  addressContent: {
+  addressCopy: {
     flex: 1,
-    marginLeft: 11,
-    paddingRight: 7,
+    marginLeft: 9,
+    paddingRight: 8,
   },
 
-  addressTitle: {
-    fontSize: 13.5,
-    fontWeight: "900",
-    color: "#2A302A",
+  addressLabel: {
+    fontSize: 7.5,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    color: "#8B969D",
   },
 
-  addressText: {
-    marginTop: 4,
-    fontSize: 10.5,
-    lineHeight: 15,
-    color: "#727A72",
-  },
-
-  landmarkText: {
+  addressValue: {
     marginTop: 3,
-    fontSize: 9,
-    color: "#90968F",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: "#102536",
   },
 
   addressMissing: {
-    marginTop: 4,
-    fontSize: 10.5,
-    lineHeight: 15,
     color: "#A56A3B",
   },
 
-  changePill: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 99,
-    backgroundColor: "#E6ECE2",
-  },
-
-  changeText: {
+  landmarkText: {
+    marginTop: 2,
     fontSize: 8.5,
-    fontWeight: "900",
-    color: "#5B705F",
+    color: "#8A949A",
   },
 
-  paymentNote: {
-    marginTop: 13,
-    padding: 13,
-    borderRadius: 19,
-    backgroundColor: "#E9EEE6",
-    borderWidth: 1,
-    borderColor: "#D7E0D4",
-    flexDirection: "row",
-    alignItems: "center",
+  addressArrow: {
+    fontSize: 27,
+    lineHeight: 28,
+    color: "#102536",
   },
 
-  paymentIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: "#CFDCCC",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  paymentIconText: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#536655",
-  },
-
-  paymentCopy: {
-    flex: 1,
-    marginLeft: 10,
-  },
-
-  paymentTitle: {
-    fontSize: 10.5,
-    fontWeight: "900",
-    color: "#4C5E50",
-  },
-
-  paymentText: {
-    marginTop: 3,
-    fontSize: 9.5,
-    lineHeight: 14,
-    color: "#737D74",
-  },
-
-  reviewCard: {
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 21,
-    backgroundColor: "#2F463A",
-    overflow: "hidden",
-  },
-
-  reviewTop: {
+  priceCard: {
+    marginTop: 16,
+    paddingHorizontal: 2,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
 
-  reviewEyebrow: {
-    fontSize: 7,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    color: "#AFC0B2",
-  },
-
-  reviewTitle: {
-    marginTop: 5,
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-
-  reviewPrice: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-
-  reviewDivider: {
-    height: 1,
-    marginVertical: 13,
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
-
-  reviewRow: {
-    marginTop: 7,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-
-  reviewLabel: {
-    fontSize: 9,
-    color: "#AFC0B2",
-  },
-
-  reviewValue: {
-    flex: 1,
-    fontSize: 9,
+  priceLabel: {
+    fontSize: 16,
     fontWeight: "800",
-    color: "#EEF4EE",
-    textAlign: "right",
+    color: "#102536",
   },
 
-  bottomBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: 9,
-    paddingHorizontal: 17,
-    backgroundColor: "rgba(248,247,243,0.97)",
-    borderTopWidth: 1,
-    borderTopColor: "#E0E3DD",
-  },
-
-  validationText: {
-    marginBottom: 7,
+  priceHint: {
+    marginTop: 3,
     fontSize: 9.5,
-    fontWeight: "700",
-    color: "#8B938B",
-    textAlign: "center",
+    color: "#879198",
+  },
+
+  priceValue: {
+    fontSize: 23,
+    lineHeight: 27,
+    fontWeight: "800",
+    color: "#102536",
+  },
+
+  loadingCard: {
+    minHeight: 94,
+    borderRadius: 17,
+    backgroundColor: "#F7F8F6",
+    borderWidth: 1,
+    borderColor: "#E4E8E4",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    columnGap: 9,
+  },
+
+  loadingText: {
+    fontSize: 11,
+    color: "#7D888D",
+  },
+
+  errorCardLight: {
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#FBF1EC",
+    borderWidth: 1,
+    borderColor: "#EAD8CF",
+  },
+
+  errorCardTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#704D42",
+  },
+
+  errorCardText: {
+    marginTop: 4,
+    fontSize: 10.5,
+    lineHeight: 15,
+    color: "#8B675A",
   },
 
   errorBox: {
-    marginBottom: 7,
-    paddingHorizontal: 11,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 12,
     backgroundColor: "#F8EDEA",
@@ -2098,73 +1221,49 @@ const styles = StyleSheet.create({
     color: "#8D5147",
   },
 
-  slideTrack: {
-    height: 62,
-    borderRadius: 31,
-    paddingHorizontal: 6,
-    justifyContent: "center",
-    backgroundColor: "#3C5749",
-    overflow: "hidden",
-  },
-
-  slideTrackDisabled: {
-    backgroundColor: "#D9DDD7",
-  },
-
-  slideTextWrap: {
+  bottomAction: {
     position: "absolute",
-    left: 28,
-    right: 76,
+    left: 0,
+    right: 0,
+    bottom: 76,
+    paddingTop: 8,
+    paddingHorizontal: 18,
+    backgroundColor: "rgba(255,255,255,0.98)",
+    borderTopWidth: 1,
+    borderTopColor: "#EEF0EF",
+  },
+
+  continueButton: {
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#123F3C",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  slideLabel: {
-    fontSize: 14,
-    fontWeight: "900",
+  continueButtonDisabled: {
+    backgroundColor: "#D7DEDB",
+  },
+
+  continueButtonPressed: {
+    opacity: 0.88,
+  },
+
+  continueText: {
+    fontSize: 15,
+    fontWeight: "800",
     color: "#FFFFFF",
   },
 
-  slideLabelDisabled: {
-    color: "#8D948E",
+  continueArrow: {
+    marginLeft: 12,
+    fontSize: 23,
+    lineHeight: 24,
+    color: "#FFFFFF",
   },
 
-  slideHint: {
-    marginTop: 2,
-    fontSize: 7.5,
-    fontWeight: "700",
-    letterSpacing: 0.7,
-    color: "#C9D7CC",
-  },
-
-  slideHintDisabled: {
-    color: "#9BA19C",
-  },
-
-  slideThumb: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#F4F1E8",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    elevation: 4,
-  },
-
-  slideThumbDisabled: {
-    backgroundColor: "#C5CAC4",
-  },
-
-  slideArrow: {
-    fontSize: 24,
-    color: "#3C5749",
-    marginTop: -2,
+  pressed: {
+    opacity: 0.75,
   },
 });
