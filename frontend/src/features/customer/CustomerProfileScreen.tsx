@@ -167,464 +167,569 @@ export default function CustomerProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 5 }]}>
+        <Pressable
+          style={styles.backButton}
+          onPress={() => router.back()}
+          disabled={isSigningOut}
+        >
+          <Text style={styles.backIcon}>‹</Text>
+        </Pressable>
+
+        <Text style={styles.headerTitle}>Profile</Text>
+
+        <Pressable
+          style={styles.headerEditButton}
+          onPress={() => router.push("/auth/profile")}
+          disabled={isSigningOut}
+        >
+          <Text style={styles.headerEditIcon}>✎</Text>
+        </Pressable>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop:
-              insets.top + 12,
-            paddingBottom:
-              insets.bottom + 105,
+            paddingTop: insets.top + 78,
+            paddingBottom: insets.bottom + 104,
           },
         ]}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable
-            style={styles.backButton}
-            onPress={() => router.back()}
-            disabled={isSigningOut}
-          >
-            <Text style={styles.backIcon}>
-              ‹
-            </Text>
-          </Pressable>
-
-          <Text style={styles.headerTitle}>
-            Profile
-          </Text>
-
-          <View style={styles.headerSpacer} />
-        </View>
-
-        {/* Profile Hero */}
         <View style={styles.profileHero}>
-          {photoUrl ? (
-            <Image
-              source={{
-                uri: photoUrl,
-              }}
-              style={styles.profileImage}
-            />
-          ) : (
-            <View
-              style={
-                styles.profileInitial
-              }
-            >
-              <Text
-                style={
-                  styles.profileInitialText
-                }
-              >
-                {getInitial()}
-              </Text>
+          <View style={styles.heroBlobOne} />
+          <View style={styles.heroBlobTwo} />
+
+          <View style={styles.heroCopy}>
+            <Text style={styles.helloText}>Hello,</Text>
+            <Text style={styles.heroName} numberOfLines={1}>{name}</Text>
+            <Text style={styles.heroPhone}>{phone}</Text>
+
+            <View style={styles.heroTag}>
+              <Text style={styles.heroTagText}>A happier home starts with you</Text>
+              <Text style={styles.heroTagIcon}>⌂</Text>
             </View>
-          )}
+          </View>
 
-          <Text style={styles.profileName}>
-            {name}
-          </Text>
-
-          <Text style={styles.profilePhone}>
-            {phone}
-          </Text>
+          <View style={styles.avatarArea}>
+            <View style={styles.avatarGlow} />
+            {photoUrl ? (
+              <Image source={{ uri: photoUrl }} style={styles.profileImage} />
+            ) : (
+              <View style={styles.profileInitial}>
+                <Text style={styles.profileInitialText}>{getInitial()}</Text>
+              </View>
+            )}
+            <View style={styles.cameraBadge}>
+              <Text style={styles.cameraIcon}>⌾</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Error */}
         {error ? (
           <View style={styles.errorBox}>
-            <Text style={styles.errorIcon}>
-              ⚠
-            </Text>
-
-            <Text style={styles.errorText}>
-              {error}
-            </Text>
+            <Text style={styles.errorIcon}>!</Text>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
-        {/* Personal Details */}
-        <Text style={styles.sectionTitle}>
-          Personal details
-        </Text>
+        <ProfileSectionHeader
+          icon={require("../../../assets/CustomerProfileUi/user-icon.png")}
+          title="Personal details"
+          onEdit={() => router.push("/auth/profile")}
+          disabled={isSigningOut}
+        />
 
-        <View style={styles.card}>
-          <View style={styles.detailRow}>
-            <View style={styles.detailIcon}>
-              <Text>👤</Text>
-            </View>
-
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>
-                Full name
-              </Text>
-
-              <Text style={styles.detailValue}>
-                {name}
-              </Text>
-            </View>
-          </View>
-
+        <View style={styles.detailsCard}>
+          <ProfileDetailRow
+            icon={require("../../../assets/CustomerProfileUi/user-icon.png")}
+            label="Full name"
+            value={name}
+          />
           <View style={styles.separator} />
-
-          <View style={styles.detailRow}>
-            <View style={styles.detailIcon}>
-              <Text>📱</Text>
-            </View>
-
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>
-                Phone number
-              </Text>
-
-              <Text style={styles.detailValue}>
-                {phone}
-              </Text>
-            </View>
-          </View>
-
+          <ProfileDetailRow
+            icon={require("../../../assets/CustomerProfileUi/phone-icon.png")}
+            label="Phone number"
+            value={phone}
+          />
           <View style={styles.separator} />
-
-          <View style={styles.detailRow}>
-            <View style={styles.detailIcon}>
-              <Text>◉</Text>
-            </View>
-
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>
-                Gender
-              </Text>
-
-              <Text style={styles.detailValue}>
-                {gender}
-              </Text>
-            </View>
-          </View>
+          <ProfileDetailRow
+            icon={require("../../../assets/CustomerProfileUi/user-icon.png")}
+            label="Gender"
+            value={gender}
+          />
         </View>
 
-        {/* Address */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>
-            Home address
-          </Text>
-
-          <Pressable
-            onPress={() =>
-              router.push(
-                '/auth/profile',
-              )
-            }
-            disabled={isSigningOut}
-          >
-            <Text style={styles.editText}>
-              Edit
-            </Text>
-          </Pressable>
-        </View>
+        <ProfileSectionHeader
+          icon={require("../../../assets/CustomerProfileUi/location-icon.png")}
+          title="Home address"
+          onEdit={() => router.push("/auth/profile")}
+          disabled={isSigningOut}
+        />
 
         <View style={styles.addressCard}>
-          <View style={styles.addressIconCircle}>
-            <Text style={styles.addressIcon}>
-              ⌖
-            </Text>
+          <View style={styles.detailImageBox}>
+            <Image
+              source={require("../../../assets/CustomerProfileUi/location-icon.png")}
+              style={styles.detailImage}
+              resizeMode="contain"
+            />
           </View>
 
           <View style={styles.addressContent}>
             {address ? (
               <>
-                <Text style={styles.addressText}>
-                  {address}
-                </Text>
-
+                <Text style={styles.addressText}>{address}</Text>
                 {landmark ? (
-                  <Text style={styles.landmarkText}>
-                    Landmark: {landmark}
-                  </Text>
+                  <Text style={styles.landmarkText}>Landmark · {landmark}</Text>
                 ) : null}
               </>
             ) : (
-              <Text
-                style={
-                  styles.addressMissing
-                }
-              >
-                No address added yet.
-              </Text>
+              <Text style={styles.addressMissing}>No address added yet.</Text>
             )}
           </View>
         </View>
 
-        {/* Account */}
-        <Text style={styles.sectionTitle}>
-          Account
-        </Text>
-
-        <View style={styles.accountCard}>
-          <View style={styles.accountIconCircle}>
-            <Text
-              style={
-                styles.accountIcon
-              }
-            >
-              ✓
-            </Text>
-          </View>
-
-          <View style={styles.accountContent}>
-            <Text style={styles.accountTitle}>
-              HomeHelp account
-            </Text>
-
-            <Text style={styles.accountSubtitle}>
-              Your account is active
-            </Text>
+        <View style={styles.accountSection}>
+          <View style={styles.sectionHeadingRow}>
+            <View style={styles.sectionHeadingIcon}>
+              <Image
+                source={require("../../../assets/CustomerProfileUi/account-shield.png")}
+                style={styles.sectionHeadingImage}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.sectionTitle}>Account</Text>
           </View>
         </View>
 
-        {/* Logout Error */}
-        {logoutError ? (
-          <View
-            style={
-              styles.logoutErrorBox
-            }
-          >
-            <Text
-              style={
-                styles.logoutErrorIcon
-              }
-            >
-              ⚠
-            </Text>
+        <View style={styles.accountCard}>
+          <View style={styles.detailImageBox}>
+            <Image
+              source={require("../../../assets/CustomerProfileUi/account-shield.png")}
+              style={styles.detailImage}
+              resizeMode="contain"
+            />
+          </View>
 
-            <Text
-              style={
-                styles.logoutErrorText
-              }
-            >
-              {logoutError}
-            </Text>
+          <View style={styles.accountContent}>
+            <Text style={styles.accountTitle}>HomeHelp account</Text>
+            <Text style={styles.accountSubtitle}>Your account is active</Text>
+          </View>
+
+          <View style={styles.activePill}>
+            <View style={styles.activeDot} />
+            <Text style={styles.activeText}>Active</Text>
+          </View>
+        </View>
+
+        {logoutError ? (
+          <View style={styles.logoutErrorBox}>
+            <Text style={styles.logoutErrorIcon}>!</Text>
+            <Text style={styles.logoutErrorText}>{logoutError}</Text>
           </View>
         ) : null}
 
-        {/* Sign Out */}
         <Pressable
-          style={[
-            styles.signOutButton,
-            isSigningOut &&
-              styles.signOutButtonDisabled,
-          ]}
+          style={[styles.signOutButton, isSigningOut && styles.signOutButtonDisabled]}
           onPress={handleSignOut}
           disabled={isSigningOut}
         >
           {isSigningOut ? (
-            <ActivityIndicator
-              size="small"
-              color="#B42318"
-            />
+            <ActivityIndicator size="small" color="#C62828" />
           ) : (
-            <Text style={styles.signOutIcon}>
-              ↪
-            </Text>
+            <>
+              <Text style={styles.signOutIcon}>↪</Text>
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </>
           )}
-
-          <Text style={styles.signOutText}>
-            {isSigningOut
-              ? 'Signing out...'
-              : 'Sign Out'}
-          </Text>
         </Pressable>
-
-        <Text style={styles.versionText}>
-          HomeHelp
-        </Text>
       </ScrollView>
+    </View>
+  );
+}
 
-      <View
-        style={[
-          styles.bottomNav,
-          { paddingBottom: Math.max(insets.bottom, 10) },
-        ]}
-      >
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.replace('/customer')}
-        >
-          <Text style={styles.navIcon}>⌂</Text>
-          <Text style={styles.navLabel}>Home</Text>
-        </Pressable>
+function ProfileSectionHeader({
+  icon,
+  title,
+  onEdit,
+  disabled,
+}: {
+  icon: number;
+  title: string;
+  onEdit: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeadingRow}>
+        <View style={styles.sectionHeadingIcon}>
+          <Image source={icon} style={styles.sectionHeadingImage} resizeMode="contain" />
+        </View>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
 
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.replace('/customer/bookings')}
-        >
-          <Text style={styles.navIcon}>▣</Text>
-          <Text style={styles.navLabel}>Bookings</Text>
-        </Pressable>
+      <Pressable onPress={onEdit} disabled={disabled} style={styles.editPill}>
+        <Text style={styles.editPillIcon}>✎</Text>
+        <Text style={styles.editPillText}>Edit</Text>
+      </Pressable>
+    </View>
+  );
+}
 
-        <Pressable style={styles.navItem}>
-          <View style={styles.navProfileImageWrap}>
-            {photoUrl ? (
-              <Image
-                source={{ uri: photoUrl }}
-                style={styles.navProfileImage}
-              />
-            ) : (
-              <Text style={styles.navProfileInitials}>
-                {getInitial()}
-              </Text>
-            )}
-          </View>
-          <Text numberOfLines={1} style={styles.navProfileName}>
-            {name.split(/\s+/)[0] || 'Profile'}
-          </Text>
-        </Pressable>
+function ProfileDetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: number;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.detailRow}>
+      <View style={styles.detailImageBox}>
+        <Image source={icon} style={styles.detailImage} resizeMode="contain" />
+      </View>
+
+      <View style={styles.detailContent}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value}</Text>
       </View>
     </View>
   );
 }
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8F6',
+    backgroundColor: "#FBFCF9",
   },
 
-  loadingScreen: {
-    flex: 1,
-    backgroundColor: '#F7F8F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+  fixedHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    minHeight: 70,
+    paddingHorizontal: 22,
+    paddingBottom: 7,
+    backgroundColor: "#FBFCF9",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF1ED",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    elevation: 2,
   },
 
-  loadingText: {
-    marginTop: 12,
-    fontSize: 13,
-    color: '#777777',
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5EBE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  backIcon: {
+    fontSize: 34,
+    lineHeight: 35,
+    color: "#103A3A",
+    marginTop: -3,
+  },
+
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#103A3A",
+  },
+
+  headerEditButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#E9F3EC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  headerEditIcon: {
+    fontSize: 23,
+    color: "#103A3A",
   },
 
   content: {
     paddingHorizontal: 20,
   },
 
-  header: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  backIcon: {
-    fontSize: 34,
-    lineHeight: 34,
-    color: '#111111',
-    marginTop: -3,
-  },
-
-  headerTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    color: '#111111',
-  },
-
-  headerSpacer: {
-    width: 42,
-  },
-
   profileHero: {
-    alignItems: 'center',
-    paddingTop: 25,
-    paddingBottom: 12,
+    minHeight: 235,
+    borderRadius: 30,
+    backgroundColor: "#EEF6EF",
+    overflow: "hidden",
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  heroCopy: {
+    width: "59%",
+    paddingLeft: 20,
+    zIndex: 2,
+  },
+
+  helloText: {
+    fontSize: 18,
+    color: "#5C7478",
+    fontWeight: "500",
+  },
+
+  heroName: {
+    marginTop: 3,
+    fontSize: 31,
+    lineHeight: 37,
+    fontWeight: "800",
+    color: "#103A3A",
+    letterSpacing: -0.8,
+  },
+
+  heroPhone: {
+    marginTop: 5,
+    fontSize: 14,
+    color: "#64767C",
+  },
+
+  heroTag: {
+    marginTop: 17,
+    minHeight: 38,
+    paddingHorizontal: 12,
+    borderRadius: 19,
+    backgroundColor: "#E3F0E5",
+    borderWidth: 1,
+    borderColor: "#D2E3D5",
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+  },
+
+  heroTagText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#2B654F",
+  },
+
+  heroTagIcon: {
+    marginLeft: 8,
+    fontSize: 15,
+    color: "#103A3A",
+  },
+
+  avatarArea: {
+    position: "absolute",
+    right: -5,
+    bottom: -2,
+    width: 194,
+    height: 210,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarGlow: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "#DFECE0",
   },
 
   profileImage: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: '#E9EEE9',
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 6,
+    borderColor: "#FFFFFF",
+    backgroundColor: "#DFE9E0",
   },
 
   profileInitial: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: '#DCEFE3',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 6,
+    borderColor: "#FFFFFF",
+    backgroundColor: "#DDEEE2",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   profileInitialText: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#1F7A4C',
+    fontSize: 46,
+    fontWeight: "800",
+    color: "#1F7A4C",
   },
 
-  profileName: {
-    marginTop: 13,
-    fontSize: 23,
-    fontWeight: '800',
-    color: '#111111',
+  cameraBadge: {
+    position: "absolute",
+    right: 17,
+    bottom: 29,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#123F3C",
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  profilePhone: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#777777',
+  cameraIcon: {
+    fontSize: 22,
+    color: "#FFFFFF",
+  },
+
+  heroBlobOne: {
+    position: "absolute",
+    left: -55,
+    bottom: -48,
+    width: 145,
+    height: 145,
+    borderRadius: 73,
+    backgroundColor: "#E1ECE0",
+  },
+
+  heroBlobTwo: {
+    position: "absolute",
+    right: -45,
+    top: -40,
+    width: 125,
+    height: 125,
+    borderRadius: 63,
+    backgroundColor: "#DAE8DB",
+  },
+
+  errorBox: {
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "#FFF4F2",
+    borderWidth: 1,
+    borderColor: "#F0D8D4",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  errorIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginRight: 8,
+    backgroundColor: "#B42318",
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    textAlignVertical: "center",
+  },
+
+  errorText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#B42318",
+  },
+
+  sectionHeader: {
+    marginTop: 25,
+    marginBottom: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  sectionHeadingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#E7F2E9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+  },
+
+  sectionHeadingImage: {
+    width: 22,
+    height: 22,
   },
 
   sectionTitle: {
-    marginTop: 23,
-    marginBottom: 11,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#111111',
+    fontSize: 21,
+    lineHeight: 26,
+    fontWeight: "800",
+    color: "#103A3A",
   },
 
-  sectionHeaderRow: {
-  marginTop: 23,
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-},
-
-  editText: {
-  fontSize: 12,
-  fontWeight: '700',
-  color: '#1F7A4C',
-},
-
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+  editPill: {
+    minHeight: 38,
+    paddingHorizontal: 13,
+    borderRadius: 19,
+    backgroundColor: "#EAF4EE",
     borderWidth: 1,
-    borderColor: '#E7EAE7',
-    paddingHorizontal: 15,
+    borderColor: "#D6E5D9",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  editPillIcon: {
+    fontSize: 16,
+    color: "#123F3C",
+    marginRight: 6,
+  },
+
+  editPillText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#123F3C",
+  },
+
+  detailsCard: {
+    paddingHorizontal: 14,
+    borderRadius: 23,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E4EAE5",
   },
 
   detailRow: {
-    minHeight: 68,
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
   },
 
-  detailIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#EFF5F1',
-    alignItems: 'center',
-    justifyContent: 'center',
+  detailImageBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: "#EAF4EE",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
+  },
+
+  detailImage: {
+    width: 25,
+    height: 25,
   },
 
   detailContent: {
@@ -633,94 +738,72 @@ const styles = StyleSheet.create({
 
   detailLabel: {
     fontSize: 11,
-    color: '#858B87',
+    color: "#718087",
+    fontWeight: "500",
   },
 
   detailValue: {
     marginTop: 4,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#222222',
+    fontSize: 15,
+    lineHeight: 20,
+    color: "#123034",
+    fontWeight: "700",
   },
 
   separator: {
     height: 1,
-    backgroundColor: '#ECEFEC',
+    backgroundColor: "#EDF0ED",
   },
 
   addressCard: {
-    padding: 15,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    minHeight: 90,
+    padding: 13,
+    borderRadius: 23,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: '#E7EAE7',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-
-  addressIconCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#EEF6F1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-
-  addressIcon: {
-    fontSize: 23,
-    color: '#1F7A4C',
+    borderColor: "#E4EAE5",
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   addressContent: {
     flex: 1,
-    paddingTop: 1,
+    paddingRight: 3,
   },
 
   addressText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: '#333333',
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#364C54",
+    fontWeight: "600",
   },
 
   landmarkText: {
-    marginTop: 6,
-    fontSize: 11,
-    color: '#858B87',
+    marginTop: 4,
+    fontSize: 10.5,
+    color: "#7A888D",
   },
 
   addressMissing: {
     fontSize: 12,
-    color: '#A86400',
     lineHeight: 18,
+    color: "#A86400",
+  },
+
+  accountSection: {
+    marginTop: 26,
+    marginBottom: 11,
   },
 
   accountCard: {
-    minHeight: 70,
-    paddingHorizontal: 14,
-    borderRadius: 17,
-    backgroundColor: '#FFFFFF',
+    minHeight: 82,
+    paddingHorizontal: 13,
+    borderRadius: 23,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: '#E7EAE7',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  accountIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#DCEFE3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-
-  accountIcon: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F7A4C',
+    borderColor: "#E4EAE5",
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   accountContent: {
@@ -728,73 +811,82 @@ const styles = StyleSheet.create({
   },
 
   accountTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#222222',
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#123034",
   },
 
   accountSubtitle: {
-    marginTop: 3,
-    fontSize: 11,
-    color: '#858B87',
+    marginTop: 4,
+    fontSize: 11.5,
+    color: "#7A888D",
   },
 
-  errorBox: {
-    marginTop: 15,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#FFF4F2',
-    flexDirection: 'row',
-    alignItems: 'center',
+  activePill: {
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#E7F5EB",
+    flexDirection: "row",
+    alignItems: "center",
   },
 
-  errorIcon: {
-    marginRight: 8,
-    fontSize: 15,
-    color: '#B42318',
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#11A36A",
+    marginRight: 6,
   },
 
-  errorText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#B42318',
+  activeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: "#16865B",
   },
 
   logoutErrorBox: {
-    marginTop: 18,
+    marginTop: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#FFF4F2',
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: 13,
+    backgroundColor: "#FFF4F2",
+    borderWidth: 1,
+    borderColor: "#F0D8D4",
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   logoutErrorIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     marginRight: 8,
-    fontSize: 15,
-    color: '#B42318',
+    backgroundColor: "#B42318",
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    textAlignVertical: "center",
   },
 
   logoutErrorText: {
     flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#B42318',
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#B42318",
   },
 
   signOutButton: {
-    height: 52,
+    height: 56,
     marginTop: 18,
-    borderRadius: 15,
-    backgroundColor: '#FFF4F2',
+    borderRadius: 19,
+    backgroundColor: "#FFF1F1",
     borderWidth: 1,
-    borderColor: '#F1D7D3',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: "#F2D2D2",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   signOutButtonDisabled: {
@@ -803,89 +895,26 @@ const styles = StyleSheet.create({
 
   signOutIcon: {
     marginRight: 8,
-    fontSize: 19,
-    color: '#B42318',
+    fontSize: 21,
+    color: "#C62828",
   },
 
   signOutText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#B42318',
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#C62828",
   },
 
-
-  bottomNav: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 9,
-    minHeight: 80,
-    paddingTop: 8,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E1E6E2',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 5,
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#FBFCF9",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  navItem: {
-    minWidth: 62,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  navIcon: {
-    fontSize: 19,
-    color: '#858A86',
-  },
-
-  navLabel: {
-    marginTop: 3,
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#858A86',
-  },
-
-  navProfileImageWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    overflow: 'hidden',
-    backgroundColor: '#E7EEE7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  navProfileImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  navProfileInitials: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1A211B',
-  },
-
-  navProfileName: {
-    marginTop: 3,
-    maxWidth: 58,
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#1F7A4C',
-    textAlign: 'center',
-  },
-
-  versionText: {
-    marginTop: 18,
-    textAlign: 'center',
-    fontSize: 10,
-    color: '#A0A5A1',
+  loadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#777777",
   },
 });

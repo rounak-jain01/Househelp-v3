@@ -58,7 +58,9 @@ export default function CustomerHomeScreen() {
     useState<CustomerProfile | null>(null);
 
   const [activeBooking, setActiveBooking] =
-    useState<CustomerBooking | null>(null);
+    useState<
+      (CustomerBooking & { bookingId?: string }) | null
+    >(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] =
@@ -223,6 +225,54 @@ export default function CustomerHomeScreen() {
             <Text style={styles.arrow}>›</Text>
           </View>
         </Pressable>
+
+        {/* ACTIVE BOOKING */}
+        <View style={styles.activeBookingSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Active Booking</Text>
+            {activeBooking ? (
+              <Text style={styles.activeBookingLive}>LIVE</Text>
+            ) : null}
+          </View>
+
+          {activeBooking ? (
+            <LiveBookingCard
+              booking={activeBooking}
+              onPress={() =>
+                router.push(
+                  `/customer/booking/${activeBooking.bookingId}`,
+                )
+              }
+            />
+          ) : (
+            <Pressable
+              onPress={() => router.push("/customer/book")}
+              style={({ pressed }) => [
+                styles.noActiveBookingCard,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Book a home service"
+            >
+              <View style={styles.noActiveBookingIconBox}>
+                <Text style={styles.noActiveBookingIcon}>+</Text>
+              </View>
+
+              <View style={styles.noActiveBookingContent}>
+                <Text style={styles.noActiveBookingTitle}>
+                  No active booking
+                </Text>
+                <Text style={styles.noActiveBookingText}>
+                  Book a home service and track it here.
+                </Text>
+              </View>
+
+              <View style={styles.noActiveBookingArrowCircle}>
+                <Text style={styles.noActiveBookingArrow}>→</Text>
+              </View>
+            </Pressable>
+          )}
+        </View>
 
         {/* QUICK SERVICES */}
         <View style={styles.servicesRow}>
@@ -599,6 +649,77 @@ const styles = StyleSheet.create({
     color: "#102536",
   },
 
+  activeBookingSection: {
+    marginTop: 22,
+  },
+
+  activeBookingLive: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: "#16865B",
+  },
+
+  noActiveBookingCard: {
+    minHeight: 96,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: "#FAFBFA",
+    borderWidth: 1,
+    borderColor: "#E4EAE5",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  noActiveBookingIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "#E7F1E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  noActiveBookingIcon: {
+    fontSize: 25,
+    lineHeight: 28,
+    fontWeight: "500",
+    color: "#16865B",
+  },
+
+  noActiveBookingContent: {
+    flex: 1,
+    marginLeft: 12,
+    paddingRight: 8,
+  },
+
+  noActiveBookingTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#102536",
+  },
+
+  noActiveBookingText: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#73818C",
+  },
+
+  noActiveBookingArrowCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#E7F0E5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  noActiveBookingArrow: {
+    fontSize: 19,
+    color: "#102536",
+  },
+
   servicesRow: {
     marginTop: 21,
     flexDirection: "row",
@@ -639,7 +760,8 @@ const styles = StyleSheet.create({
   },
 
   promoCard: {
-    height: 176,
+    width: "100%",
+    aspectRatio: 2.05,
     marginTop: 25,
     borderRadius: 27,
     overflow: "hidden",

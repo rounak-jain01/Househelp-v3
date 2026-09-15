@@ -1,21 +1,28 @@
-import { Stack } from 'expo-router';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Stack, usePathname } from "expo-router";
 
-import { MaidLanguageProvider } from '../src/features/maid/MaidLanguageContext';
-import NotificationProvider from '../src/features/notifications/NotificationProvider';
+import CustomerBottomNav from "../src/components/CustomerBottomNav";
 
-export default function RootLayout() {
+export default function CustomerLayout() {
+  const pathname = usePathname();
+
+  // Booking flow has its own screen actions.
+  // Bottom navigation must not cover those actions.
+  const isBookingFlow =
+    pathname.includes("/customer/booking/");
+
   return (
-    <SafeAreaProvider>
-      <MaidLanguageProvider>
-        <NotificationProvider>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-            }}
-          />
-        </NotificationProvider>
-      </MaidLanguageProvider>
-    </SafeAreaProvider>
+    <>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: "slide_from_right",
+          contentStyle: {
+            backgroundColor: "#FAFAF8",
+          },
+        }}
+      />
+
+      {!isBookingFlow && <CustomerBottomNav />}
+    </>
   );
 }

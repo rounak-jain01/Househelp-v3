@@ -43,6 +43,8 @@ type Booking = {
   categories?: string[];
   duration?: number;
   scheduledDateTime?: any;
+  createdAt?: any;
+  updatedAt?: any;
   totalPrice?: number;
   status?: BookingStatus;
   customerAddress?: {
@@ -159,9 +161,26 @@ export default function CustomerBookingsScreen() {
         }));
 
         next.sort((a, b) => {
-          const aTime = a.scheduledDateTime?.toMillis?.() ?? 0;
-          const bTime = b.scheduledDateTime?.toMillis?.() ?? 0;
-          return bTime - aTime;
+          const aCreated =
+            a.createdAt?.toMillis?.() ??
+            (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+
+          const bCreated =
+            b.createdAt?.toMillis?.() ??
+            (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+
+          // Latest booking created by the customer stays at the top.
+          if (aCreated || bCreated) {
+            return bCreated - aCreated;
+          }
+
+          // Safe fallback for older booking documents without createdAt.
+          const aScheduled =
+            a.scheduledDateTime?.toMillis?.() ?? 0;
+          const bScheduled =
+            b.scheduledDateTime?.toMillis?.() ?? 0;
+
+          return bScheduled - aScheduled;
         });
 
         setBookings(next);
@@ -245,7 +264,7 @@ export default function CustomerBookingsScreen() {
             <View style={styles.heroHeader}>
               <Text style={styles.pageTitle}>My Bookings</Text>
               <Text style={styles.pageSubtitle}>
-                Track and manage all your home service bookings.
+                Your latest booking stays on top, with all previous bookings below.
               </Text>
             </View>
 
@@ -277,7 +296,7 @@ export default function CustomerBookingsScreen() {
             </Pressable>
           </View>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const category = item.categories?.length
             ? formatCategory(item.categories[0])
             : "Home service";
@@ -312,6 +331,7 @@ export default function CustomerBookingsScreen() {
               }
               style={({ pressed }) => [
                 styles.bookingCard,
+                index === 0 && styles.latestBookingCard,
                 pressed && styles.pressed,
               ]}
               accessibilityRole="button"
@@ -319,6 +339,12 @@ export default function CustomerBookingsScreen() {
             >
               {/* TOP AREA */}
               <View style={styles.bookingTop}>
+                {index === 0 ? (
+                  <View style={styles.latestBadge}>
+                    <Text style={styles.latestBadgeText}>LATEST BOOKING</Text>
+                  </View>
+                ) : null}
+
                 <View
                   style={[
                     styles.categoryIconWrap,
@@ -599,6 +625,31 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  latestBookingCard: {
+    backgroundColor: "#F1F8F1",
+    borderColor: "#CFE4D3",
+    shadowOpacity: 0.08,
+    elevation: 3,
+  },
+
+  latestBadge: {
+    position: "absolute",
+    top: -5,
+    left: 16,
+    zIndex: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#0F6B51",
+  },
+
+  latestBadgeText: {
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+    color: "#FFFFFF",
+  },
+
   pressed: {
     opacity: 0.76,
   },
@@ -606,6 +657,7 @@ const styles = StyleSheet.create({
   bookingTop: {
     flexDirection: "row",
     alignItems: "flex-start",
+    paddingTop: 5,
   },
 
   categoryIconWrap: {
