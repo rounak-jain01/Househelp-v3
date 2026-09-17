@@ -145,16 +145,6 @@ function WelcomePage({
       </View>
 
       <View style={styles.welcomeBottom}>
-        <View
-          style={styles.dots}
-          accessibilityLabel="Welcome screen, step one of four"
-        >
-          <View style={[styles.dot, styles.activeDot]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
-
         <PrimaryButton label="Get Started" onPress={onContinue} />
       </View>
     </View>
